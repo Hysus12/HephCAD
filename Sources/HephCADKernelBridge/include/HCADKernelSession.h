@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -24,6 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface HCADKernelSession : NSObject
 
+@property (nonatomic, readonly, copy) NSArray<HCADBodyPayload *> *currentBodies;
+@property (nonatomic, readonly, nullable, copy) NSString *selectedBodyIdentifier;
+
 - (HCADScenePayload *)makeDemoShape;
 - (HCADScenePayload *)importSTEPAtURL:(NSURL *)url error:(NSError * _Nullable * _Nullable)error;
 - (BOOL)exportSTEPForBodyIDs:(NSArray<NSString *> *)bodyIDs
@@ -38,6 +42,15 @@ NS_ASSUME_NONNULL_BEGIN
                    error:(NSError * _Nullable * _Nullable)error;
 - (void)setBodyTransparencyWithID:(NSString *)bodyID value:(double)value;
 - (void)setBodyVisibilityWithID:(NSString *)bodyID visible:(BOOL)visible;
+- (void)prepareViewerInView:(UIView *)view;
+- (void)reloadActiveScene;
+- (void)drawViewer;
+- (void)startRotationAtX:(NSInteger)x y:(NSInteger)y;
+- (void)rotateToX:(NSInteger)x y:(NSInteger)y;
+- (void)panByDX:(NSInteger)dx dy:(NSInteger)dy;
+- (void)zoomAtX:(NSInteger)x y:(NSInteger)y delta:(double)delta;
+- (nullable NSString *)selectBodyAtX:(NSInteger)x y:(NSInteger)y;
+- (void)setIsolatedBodyIDs:(NSArray<NSString *> * _Nullable)bodyIDs;
 
 @end
 

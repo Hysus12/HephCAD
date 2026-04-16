@@ -26,11 +26,11 @@ final class WorkspaceState: ObservableObject {
     @Published var referenceImages: [AppReferenceImage]
     @Published var viewerStatus: String
 
-    private let kernelSession = HCADKernelSession()
+    let kernelSession = HCADKernelSession()
 
     init() {
         let scene = kernelSession.makeDemoShape()
-        self.bodies = scene.bodies.map {
+        let initialBodies = scene.bodies.map {
             AppBody(
                 id: $0.identifier,
                 name: $0.name,
@@ -39,7 +39,8 @@ final class WorkspaceState: ObservableObject {
                 transparency: 0.0
             )
         }
-        self.selectedBodyID = bodies.first?.id
+        self.bodies = initialBodies
+        self.selectedBodyID = initialBodies.first?.id
         self.isolatedBodyIDs = nil
         self.referenceImages = []
         self.viewerStatus = "Demo scene loaded"
@@ -53,7 +54,7 @@ final class WorkspaceState: ObservableObject {
     }
 
     func importBundledSTEP() {
-        guard let url = Bundle.main.url(forResource: "box", withExtension: "step") else {
+        guard let url = Bundle.main.url(forResource: "screw", withExtension: "step") else {
             viewerStatus = "Bundled STEP sample not found"
             return
         }
@@ -130,5 +131,23 @@ final class WorkspaceState: ObservableObject {
         guard referenceImages.isEmpty == false else { return }
         referenceImages[0].position.x = x
         viewerStatus = "Reference X \(String(format: "%.1f", x))"
+    }
+
+    func nudgeReferenceImageY(_ y: Double) {
+        guard referenceImages.isEmpty == false else { return }
+        referenceImages[0].position.y = y
+        viewerStatus = "Reference Y \(String(format: "%.1f", y))"
+    }
+
+    func updateReferenceImageRotation(_ rotation: Double) {
+        guard referenceImages.isEmpty == false else { return }
+        referenceImages[0].rotation.z = rotation
+        viewerStatus = "Reference rot \(String(format: "%.2f", rotation))"
+    }
+
+    func updateReferenceImageScale(_ scale: Double) {
+        guard referenceImages.isEmpty == false else { return }
+        referenceImages[0].scale = SIMD3<Double>(repeating: scale)
+        viewerStatus = "Reference scale \(String(format: "%.2f", scale))"
     }
 }

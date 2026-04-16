@@ -47,6 +47,7 @@ HephCAD 採用 iPad app shell + Swift state/domain modules + Objective-C++ bridg
 - 不先自研 renderer
 - Phase 1 以沿用/參考 OCCT official iOS UIKit sample 為主
 - 若 simulator 不穩定，以 generic iOS build + device 驗證為主，並在文件中記錄限制
+- 目前 real viewer path 採用 OCCT sample 的 `EAGLContext + OpenGl_GraphicDriver + V3d/AIS` 路線，reference image 則先以 viewer overlay 方式實作 MVP
 
 ## Bridge Boundary
 
@@ -72,3 +73,4 @@ Swift 不直接暴露任何 OCCT/lib3mf type。bridge 層提供以下穩定 faç
 - Swift package 負責 host-side modules/tests
 - third-party 由 script 依 `third_party/versions.lock.json` build 至 `third_party/build/`
 - CI 分成 host checks 與 iOS generic build check
+- Phase 1 的 OCCT build 先暫時以 `USE_FREETYPE=OFF` 降低 iOS static build 複雜度；若後續 viewer/STEP compile 穩定，再補回 FreeType

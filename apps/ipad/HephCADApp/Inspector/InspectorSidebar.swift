@@ -68,8 +68,32 @@ struct InspectorSidebar: View {
                         ),
                         in: -100...100
                     )
+                    Slider(
+                        value: Binding(
+                            get: { image.position.y },
+                            set: { state.nudgeReferenceImageY($0) }
+                        ),
+                        in: -100...100
+                    )
+                    Slider(
+                        value: Binding(
+                            get: { image.rotation.z },
+                            set: { state.updateReferenceImageRotation($0) }
+                        ),
+                        in: -Double.pi...Double.pi
+                    )
+                    Slider(
+                        value: Binding(
+                            get: { image.scale.x },
+                            set: { state.updateReferenceImageScale($0) }
+                        ),
+                        in: 0.2...3.0
+                    )
                     Text("Opacity \(image.opacity.formatted(.number.precision(.fractionLength(2))))")
                     Text("X \(image.position.x.formatted(.number.precision(.fractionLength(1))))")
+                    Text("Y \(image.position.y.formatted(.number.precision(.fractionLength(1))))")
+                    Text("Rot \(image.rotation.z.formatted(.number.precision(.fractionLength(2))))")
+                    Text("Scale \(image.scale.x.formatted(.number.precision(.fractionLength(2))))")
                 }
             }
         }

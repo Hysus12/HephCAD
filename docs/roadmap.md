@@ -10,7 +10,9 @@
 
 - Done: 文件、Swift package、host tests、sample assets、scripts、CI skeleton、checked-in `.xcodeproj`
 - Verified: `swift test --disable-index-store -j 1` 通過；`xcodebuild -list -project apps/ipad/HephCADApp.xcodeproj` 可解析專案
-- Blocker: 本機 Xcode `-showdestinations` 只回報 ineligible `Any iOS Device`，generic iOS build 尚未完成
+- Verified: `cmake` / `ninja` 已安裝；iOS 17.2 simulator runtime 已安裝；`-showdestinations` 可列出 iPad simulators
+- Verified: generic iOS build 已可跑到 app compile / link 階段
+- In progress: OCCT static library build pipeline 與 app target OCCT linkage
 
 ### Exit Criteria
 
@@ -27,8 +29,13 @@
 
 ### Current Status
 
-- Done: demo shape stub、bundled STEP sample import path、selection/isolate/transparency/reference image inspector flow
-- Pending: 用 OCCT viewer 取代 stub viewer，並完成實際 device/simulator build 驗證
+- Done: OCCT-backed viewer/controller code 已接入 repo；gesture wiring、selection delegate、STEP sample `screw.step` 匯入路徑、isolate/transparency/reference image overlay wiring 已切到 real path
+- Verified: app target 已通過 Swift compile，並到達 OCCT link 階段
+- Done: OCCT dependency backend 已切換為 CMake + Ninja；app-side `.xcodeproj` 僅做最小 linker 補正（`TKDE`, `TKBinL`, `TKBin`, `TKBinXCAF`）
+- Verified: 新 `iphoneos` Ninja configure 成功；`TKernel` 已成功編譯並安裝到 `third_party/build/occt/install/iphoneos/lib/libTKernel.a`
+- In progress: `iphoneos` frontier targets (`TKOpenGles`, `TKDESTEP`, `TKBinXCAF`) 與其完整 transitive OCCT libs install、app target最終 link 驗證
+- Blocked now: `iphoneos` 新路徑尚未產出完整 Phase 1 OCCT toolkit closure；`iphonesimulator` 尚未開始；因此 app link 尚未重新驗證
+- Pending: 完整 device/simulator build 驗證與剩餘 OCCT linkage 收斂
 
 ### Exit Criteria
 

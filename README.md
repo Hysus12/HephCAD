@@ -42,14 +42,17 @@ third_party/              third-party 版本鎖定與 build 輸出位置
 ## 開發前置
 
 1. 安裝完整 Xcode，並讓 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 可用。
-2. 執行 `scripts/bootstrap_macos.sh` 安裝 `cmake` 等 host tools。
-3. 執行 `scripts/doctor.sh` 檢查 Xcode、simulator runtime、Homebrew 與目錄狀態。
+2. 執行 `scripts/bootstrap_macos.sh` 安裝 `cmake` / `ninja`，並在缺少 iOS runtime 時透過 `xcodebuild -downloadPlatform iOS` 補齊。
+3. 執行 `scripts/doctor.sh` 檢查 Xcode first-launch、SDK、simulator runtime、destinations 與 OCCT install 目錄。
+4. 執行 `scripts/build_occt_ios.sh` 產生 `iphoneos` / `iphonesimulator` 靜態庫後，再跑 app build。
 
 ## 常用指令
 
 ```bash
 swift test
 scripts/run_host_tests.sh
+scripts/doctor.sh
+scripts/build_occt_ios.sh
 scripts/run_ios_build_check.sh
 scripts/build_app.sh
 ```

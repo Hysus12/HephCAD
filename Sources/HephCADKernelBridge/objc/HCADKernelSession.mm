@@ -1,6 +1,14 @@
 #import "HCADKernelSession.h"
 
-#import "../cpp/KernelSessionStub.hpp"
+#import "HCADOcctViewer.h"
+
+#include <memory>
+
+typedef NS_ENUM(NSInteger, HCADSceneSource) {
+    HCADSceneSourceNone = 0,
+    HCADSceneSourceDemo,
+    HCADSceneSourceSTEP
+};
 
 @implementation HCADBodyPayload
 
@@ -31,30 +39,73 @@
 @end
 
 @implementation HCADKernelSession {
-    hephcad::KernelSessionStub _stub;
+    std::unique_ptr<HCADOcctViewer> _viewer;
+    NSArray<HCADBodyPayload *> *_currentBodies;
+    NSString *_selectedBodyIdentifier;
+    HCADSceneSource _sceneSource;
+    NSURL *_stepURL;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _viewer = std::make_unique<HCADOcctViewer>();
+        _currentBodies = @[];
+        _selectedBodyIdentifier = nil;
+        _sceneSource = HCADSceneSourceNone;
+        _stepURL = nil;
+    }
+    return self;
+}
+
+- (NSArray<HCADBodyPayload *> *)currentBodies {
+    return _currentBodies;
+}
+
+- (NSString *)selectedBodyIdentifier {
+    return _selectedBodyIdentifier;
 }
 
 - (HCADScenePayload *)makeDemoShape {
-    return [self payloadFromBodies:_stub.makeDemoShape()];
+    _sceneSource = HCADSceneSourceDemo;
+    _stepURL = nil;
+
+    if (_viewer != nullptr) {
+        [self syncBodiesFromRecords:_viewer->Bodies()];
+        if (_currentBodies.count == 0) {
+            _currentBodies = @[
+                [[HCADBodyPayload alloc] initWithIdentifier:@"demo-box-001" name:@"Demo Box" kind:@"brep"]
+            ];
+        }
+    }
+    return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
 }
 
 - (HCADScenePayload *)importSTEPAtURL:(NSURL *)url error:(NSError * _Nullable __autoreleasing *)error {
-    auto bodies = _stub.importStep(url.path.UTF8String);
-    if (bodies.empty()) {
+    _sceneSource = HCADSceneSourceSTEP;
+    _stepURL = url;
+
+    std::string errorMessage;
+    bool didImport = _viewer->ImportSTEP(url.path.UTF8String, errorMessage);
+    if (!didImport) {
         if (error != nil) {
+            NSString *message = errorMessage.empty() ? @"STEP import failed." : [NSString stringWithUTF8String:errorMessage.c_str()];
             *error = [NSError errorWithDomain:@"HephCAD.KernelSession"
                                          code:1
-                                     userInfo:@{NSLocalizedDescriptionKey: @"STEP file could not be loaded by stub backend."}];
+                                     userInfo:@{NSLocalizedDescriptionKey: message}];
         }
         return [[HCADScenePayload alloc] initWithBodies:@[]];
     }
-    return [self payloadFromBodies:bodies];
+
+    [self syncBodiesFromRecords:_viewer->Bodies()];
+    _selectedBodyIdentifier = nil;
+    return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
 }
 
 - (BOOL)exportSTEPForBodyIDs:(NSArray<NSString *> *)bodyIDs
                        toURL:(NSURL *)url
                        error:(NSError * _Nullable __autoreleasing *)error {
-    NSString *content = [NSString stringWithFormat:@"STEP-STUB\nbody_count=%lu\n", (unsigned long)bodyIDs.count];
+    NSString *content = [NSString stringWithFormat:@"STEP export placeholder\nbody_count=%lu\n", (unsigned long)bodyIDs.count];
     NSError *writeError = nil;
     BOOL success = [content writeToURL:url atomically:YES encoding:NSUTF8StringEncoding error:&writeError];
     if (!success && error != nil) {
@@ -77,7 +128,8 @@
     HCADBodyPayload *body = [[HCADBodyPayload alloc] initWithIdentifier:@"mesh-node-001"
                                                                    name:[NSString stringWithFormat:@"Imported %@", format.uppercaseString]
                                                                    kind:@"mesh"];
-    return [[HCADScenePayload alloc] initWithBodies:@[body]];
+    _currentBodies = @[body];
+    return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
 }
 
 - (BOOL)exportMeshNodeID:(NSString *)nodeID
@@ -94,24 +146,88 @@
 }
 
 - (void)setBodyTransparencyWithID:(NSString *)bodyID value:(double)value {
-    (void)bodyID;
-    (void)value;
+    _viewer->SetTransparency(bodyID.UTF8String, value);
 }
 
 - (void)setBodyVisibilityWithID:(NSString *)bodyID visible:(BOOL)visible {
-    (void)bodyID;
-    (void)visible;
+    _viewer->SetVisibility(bodyID.UTF8String, visible);
 }
 
-- (HCADScenePayload *)payloadFromBodies:(const std::vector<hephcad::BodyStub>&)bodies {
-    NSMutableArray<HCADBodyPayload *> *results = [NSMutableArray arrayWithCapacity:bodies.size()];
-    for (const auto& body : bodies) {
-        NSString *identifier = [NSString stringWithUTF8String:body.identifier.c_str()];
-        NSString *name = [NSString stringWithUTF8String:body.name.c_str()];
-        NSString *kind = [NSString stringWithUTF8String:body.kind.c_str()];
-        [results addObject:[[HCADBodyPayload alloc] initWithIdentifier:identifier name:name kind:kind]];
+- (void)prepareViewerInView:(UIView *)view {
+    if (!_viewer->InitViewer(view)) {
+        return;
     }
-    return [[HCADScenePayload alloc] initWithBodies:results];
+    [self reloadActiveScene];
+}
+
+- (void)reloadActiveScene {
+    switch (_sceneSource) {
+        case HCADSceneSourceDemo: {
+            [self syncBodiesFromRecords:_viewer->LoadDemoBox()];
+            break;
+        }
+        case HCADSceneSourceSTEP: {
+            if (_stepURL != nil) {
+                std::string errorMessage;
+                if (_viewer->ImportSTEP(_stepURL.path.UTF8String, errorMessage)) {
+                    [self syncBodiesFromRecords:_viewer->Bodies()];
+                }
+            }
+            break;
+        }
+        case HCADSceneSourceNone:
+            break;
+    }
+}
+
+- (void)drawViewer {
+    _viewer->Redraw();
+}
+
+- (void)startRotationAtX:(NSInteger)x y:(NSInteger)y {
+    _viewer->StartRotation((int)x, (int)y);
+}
+
+- (void)rotateToX:(NSInteger)x y:(NSInteger)y {
+    _viewer->Rotation((int)x, (int)y);
+}
+
+- (void)panByDX:(NSInteger)dx dy:(NSInteger)dy {
+    _viewer->Pan((int)dx, (int)dy);
+}
+
+- (void)zoomAtX:(NSInteger)x y:(NSInteger)y delta:(double)delta {
+    _viewer->Zoom((int)x, (int)y, delta);
+}
+
+- (NSString *)selectBodyAtX:(NSInteger)x y:(NSInteger)y {
+    std::string selectedBodyID = _viewer->Select((int)x, (int)y);
+    _selectedBodyIdentifier = selectedBodyID.empty() ? nil : [NSString stringWithUTF8String:selectedBodyID.c_str()];
+    return _selectedBodyIdentifier;
+}
+
+- (void)setIsolatedBodyIDs:(NSArray<NSString *> * _Nullable)bodyIDs {
+    if (bodyIDs == nil || bodyIDs.count == 0) {
+        _viewer->ClearIsolation();
+        return;
+    }
+
+    std::vector<std::string> selected;
+    selected.reserve(bodyIDs.count);
+    for (NSString *bodyID in bodyIDs) {
+        selected.push_back(bodyID.UTF8String);
+    }
+    _viewer->ApplyIsolation(selected);
+}
+
+- (void)syncBodiesFromRecords:(const std::vector<HCADBodyRecord>&)records {
+    NSMutableArray<HCADBodyPayload *> *payloads = [NSMutableArray arrayWithCapacity:records.size()];
+    for (const HCADBodyRecord& record : records) {
+        [payloads addObject:[[HCADBodyPayload alloc] initWithIdentifier:[NSString stringWithUTF8String:record.identifier.c_str()]
+                                                                   name:[NSString stringWithUTF8String:record.name.c_str()]
+                                                                   kind:[NSString stringWithUTF8String:record.kind.c_str()]]];
+    }
+    _currentBodies = [payloads copy];
 }
 
 @end

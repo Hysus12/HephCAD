@@ -21,6 +21,12 @@ else
   echo "[ios-build-check] no iOS simulator runtime installed; continuing with generic iOS device build"
 fi
 
+if [[ ! -d "${ROOT_DIR}/third_party/build/occt/install/iphoneos/lib" ]]; then
+  echo "[ios-build-check] OCCT iphoneos libraries are missing."
+  echo "[ios-build-check] run ./scripts/build_occt_ios.sh before building the app."
+  exit 1
+fi
+
 set +e
 "${XCODEBUILD}" \
   -project apps/ipad/HephCADApp.xcodeproj \
