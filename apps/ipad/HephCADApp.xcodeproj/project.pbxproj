@@ -1,0 +1,374 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00100010000000000000001 /* HephCADApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000001 /* HephCADApp.swift */; };
+		A00100010000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000002 /* AppDelegate.swift */; };
+		A00100010000000000000003 /* WorkspaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000003 /* WorkspaceState.swift */; };
+		A00100010000000000000004 /* WorkspaceRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000004 /* WorkspaceRootView.swift */; };
+		A00100010000000000000005 /* ViewerWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000005 /* ViewerWorkspaceView.swift */; };
+		A00100010000000000000006 /* ViewerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000006 /* ViewerContainer.swift */; };
+		A00100010000000000000007 /* InspectorSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000007 /* InspectorSidebar.swift */; };
+		A00100010000000000000008 /* HCADKernelSession.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000008 /* HCADKernelSession.mm */; };
+		A00100010000000000000009 /* KernelSessionStub.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000009 /* KernelSessionStub.cpp */; };
+		A0010001000000000000000A /* HCADViewerViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000A /* HCADViewerViewController.m */; };
+		A0010001000000000000000B /* box.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000B /* box.step */; };
+		A0010001000000000000000C /* bracket.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000C /* bracket.step */; };
+		A0010001000000000000000D /* grid.png in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000D /* grid.png */; };
+		A0010001000000000000000E /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000E /* UIKit.framework */; };
+		A0010001000000000000000F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000F /* Foundation.framework */; };
+		A00100010000000000000010 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00200010000000000000010 /* SwiftUI.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00200010000000000000001 /* HephCADApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/HephCADApp.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/AppDelegate.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000003 /* WorkspaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceState.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000004 /* WorkspaceRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceRootView.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000005 /* ViewerWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerWorkspaceView.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000006 /* ViewerContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerContainer.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000007 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Inspector/InspectorSidebar.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000008 /* HCADKernelSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000009 /* KernelSessionStub.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ../../Sources/HephCADKernelBridge/cpp/KernelSessionStub.cpp; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000A /* HCADViewerViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.m; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000B /* box.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/box.step; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000C /* bracket.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/bracket.step; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000D /* grid.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HephCADApp/Resources/ReferenceImages/grid.png; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		A0020001000000000000000F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		A00200010000000000000010 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		A00200010000000000000011 /* HephCADApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HephCADApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00200010000000000000012 /* HCADKernelSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/include/HCADKernelSession.h; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000013 /* KernelSessionStub.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = ../../Sources/HephCADKernelBridge/cpp/KernelSessionStub.hpp; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000014 /* HCADViewerViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.h; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000015 /* HephCADApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HephCADApp/HephCADApp-Bridging-Header.h; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A00300010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0010001000000000000000E /* UIKit.framework in Frameworks */,
+				A0010001000000000000000F /* Foundation.framework in Frameworks */,
+				A00100010000000000000010 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00400010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A00400010000000000000002 /* HephCADApp */,
+				A00400010000000000000003 /* BridgeSources */,
+				A00400010000000000000004 /* Frameworks */,
+				A00400010000000000000005 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00400010000000000000002 /* HephCADApp */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000001 /* HephCADApp.swift */,
+				A00200010000000000000002 /* AppDelegate.swift */,
+				A00200010000000000000015 /* HephCADApp-Bridging-Header.h */,
+				A00400010000000000000006 /* Workspace */,
+				A00400010000000000000007 /* Viewer */,
+				A00400010000000000000008 /* Inspector */,
+				A00400010000000000000009 /* Resources */,
+			);
+			path = HephCADApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		A00400010000000000000003 /* BridgeSources */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000012 /* HCADKernelSession.h */,
+				A00200010000000000000008 /* HCADKernelSession.mm */,
+				A00200010000000000000013 /* KernelSessionStub.hpp */,
+				A00200010000000000000009 /* KernelSessionStub.cpp */,
+				A00200010000000000000014 /* HCADViewerViewController.h */,
+				A0020001000000000000000A /* HCADViewerViewController.m */,
+			);
+			name = BridgeSources;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000004 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A0020001000000000000000F /* Foundation.framework */,
+				A00200010000000000000010 /* SwiftUI.framework */,
+				A0020001000000000000000E /* UIKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000005 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000011 /* HephCADApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000006 /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000003 /* WorkspaceState.swift */,
+				A00200010000000000000004 /* WorkspaceRootView.swift */,
+			);
+			path = Workspace;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000007 /* Viewer */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000005 /* ViewerWorkspaceView.swift */,
+				A00200010000000000000006 /* ViewerContainer.swift */,
+			);
+			path = Viewer;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000008 /* Inspector */ = {
+			isa = PBXGroup;
+			children = (
+				A00200010000000000000007 /* InspectorSidebar.swift */,
+			);
+			path = Inspector;
+			sourceTree = "<group>";
+		};
+		A00400010000000000000009 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A0020001000000000000000B /* box.step */,
+				A0020001000000000000000C /* bracket.step */,
+				A0020001000000000000000D /* grid.png */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00500010000000000000001 /* HephCADApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00800010000000000000001 /* Build configuration list for PBXNativeTarget "HephCADApp" */;
+			buildPhases = (
+				A00300010000000000000002 /* Sources */,
+				A00300010000000000000001 /* Frameworks */,
+				A00300010000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HephCADApp;
+			productName = HephCADApp;
+			productReference = A00200010000000000000011 /* HephCADApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00600010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+				TargetAttributes = {
+					A00500010000000000000001 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+				};
+			};
+			buildConfigurationList = A00800010000000000000002 /* Build configuration list for PBXProject "HephCADApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00400010000000000000001;
+			productRefGroup = A00400010000000000000005 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00500010000000000000001 /* HephCADApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A00300010000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0010001000000000000000B /* box.step in Resources */,
+				A0010001000000000000000C /* bracket.step in Resources */,
+				A0010001000000000000000D /* grid.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00300010000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00100010000000000000001 /* HephCADApp.swift in Sources */,
+				A00100010000000000000002 /* AppDelegate.swift in Sources */,
+				A00100010000000000000003 /* WorkspaceState.swift in Sources */,
+				A00100010000000000000004 /* WorkspaceRootView.swift in Sources */,
+				A00100010000000000000005 /* ViewerWorkspaceView.swift in Sources */,
+				A00100010000000000000006 /* ViewerContainer.swift in Sources */,
+				A00100010000000000000007 /* InspectorSidebar.swift in Sources */,
+				A00100010000000000000008 /* HCADKernelSession.mm in Sources */,
+				A00100010000000000000009 /* KernelSessionStub.cpp in Sources */,
+				A0010001000000000000000A /* HCADViewerViewController.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00700010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		A00700010000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		A00700010000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../../Sources/HephCADKernelBridge/include",
+					"$(PROJECT_DIR)/../../Sources/HephCADKernelBridge/cpp",
+					"$(PROJECT_DIR)/../../Sources/HephCADViewerBridge",
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = HephCAD;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hephcad.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = HephCADApp/HephCADApp-Bridging-Header.h;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A00700010000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../../Sources/HephCADKernelBridge/include",
+					"$(PROJECT_DIR)/../../Sources/HephCADKernelBridge/cpp",
+					"$(PROJECT_DIR)/../../Sources/HephCADViewerBridge",
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = HephCAD;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MTL_ENABLE_DEBUG_INFO = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hephcad.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = HephCADApp/HephCADApp-Bridging-Header.h;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00800010000000000000001 /* Build configuration list for PBXNativeTarget "HephCADApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00700010000000000000003 /* Debug */,
+				A00700010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00800010000000000000002 /* Build configuration list for PBXProject "HephCADApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00700010000000000000001 /* Debug */,
+				A00700010000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00600010000000000000001 /* Project object */;
+}

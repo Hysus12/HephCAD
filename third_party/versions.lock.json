@@ -1,0 +1,14 @@
+{
+  "occt": {
+    "version": "7.9.0",
+    "source": "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_0.tar.gz"
+  },
+  "lib3mf": {
+    "version": "2.3.2",
+    "source": "https://github.com/3MFConsortium/lib3mf/archive/refs/tags/v2.3.2.tar.gz"
+  },
+  "freetype": {
+    "version": "2.13.3",
+    "source": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz"
+  }
+}
