@@ -95,15 +95,16 @@ Visible UI or functionality that should be treated cautiously:
 - `Isolate` button is wired in state/viewer flow, and STEP import now clears stale isolation state when switching away from the demo scene, but isolate should still be treated as needing device revalidation
 - reference image controls are wired in inspector and viewer overlay flow, but should not be treated as validated unless rechecked on device
 - tapping a body in the inspector selects app state, but there is no confirmed reverse viewer highlight/update path from inspector selection back into the OCCT view
+- plane-based `Pencil Sketch` entry is now implemented in the app shell for `Top`, `Front`, and `Right` origin planes
+- line / arc / fit-point spline stroke capture, closed-profile detection, and contextual `Extrude` surfacing are now implemented in code, but they should be treated as pending device validation until the full Pencil path is exercised on iPad
+- `Revolve` is still not implemented and is intentionally not surfaced as an active tool yet
 
 UI that is present but should be treated as placeholder/non-CAD-authoring UI:
-- there is no real sketch authoring toolchain yet
-- there is no real feature creation toolchain yet
 - visible CAD/construction buttons outside the currently wired Phase 1 controls should be assumed placeholder unless explicitly validated
 
 Not implemented yet:
-- real sketch tools
-- extrude / cut / revolve authoring
+- face-picked sketch entry from real solid faces
+- revolve / cut authoring
 - boolean/pattern authoring UI
 - helix / spring / thread feature generation
 - STL/OBJ/3MF runtime workflows
@@ -120,6 +121,8 @@ Missing implementations:
 - production-quality import/export flows beyond the current STEP demo path
 - on-canvas reference image gizmos
 - deeper selection semantics and editing workflows
+- Pencil sketch mode currently targets origin planes, not arbitrary picked faces
+- sketch entities are converted to an extrudable closed profile with a lightweight app-side sketch model; they are not yet backed by a full persistent CAD sketch system
 
 Known risks:
 - OCCT iOS runtime path still depends on the current OpenGL ES sample-style route
@@ -135,6 +138,7 @@ Preferred order:
    - selection -> inspector update
    - isolate
    - reference image controls
+   - plane entry -> Pencil line/arc/spline -> closed profile -> extrude
 2. Mark each of those as either:
    - verified working
    - visible but placeholder
@@ -146,6 +150,7 @@ Preferred order:
 
 Smallest slice completed after this checkpoint:
 - viewer scene reload is now explicitly tied to document/scene revision changes in SwiftUI state, so STEP import is less likely to appear as a shell-only action with stale demo geometry still on screen
+- a first Pencil-led modeling slice now exists in code: select an origin sketch plane, draw line/arc/spline entities with Pencil, detect a closed profile, and trigger a real OCCT extrude into a visible solid body
 
 What should not be touched yet:
 - app architecture

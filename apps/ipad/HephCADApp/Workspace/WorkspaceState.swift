@@ -18,6 +18,41 @@ struct AppReferenceImage: Identifiable, Hashable {
     var scale: SIMD3<Double>
 }
 
+enum SketchPlane: String, CaseIterable, Identifiable {
+    case top
+    case front
+    case right
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .top: return "Top Plane"
+        case .front: return "Front Plane"
+        case .right: return "Right Plane"
+        }
+    }
+}
+
+enum SketchTool: String, CaseIterable, Identifiable {
+    case line
+    case arc
+    case spline
+
+    var id: String { rawValue }
+
+    var title: String {
+        rawValue.capitalized
+    }
+}
+
+struct SketchEntity: Identifiable, Hashable {
+    let id: UUID
+    let tool: SketchTool
+    let displayPoints: [CGPoint]
+    let planePoints: [CGPoint]
+}
+
 @MainActor
 final class WorkspaceState: ObservableObject {
     @Published var bodies: [AppBody]
@@ -26,6 +61,11 @@ final class WorkspaceState: ObservableObject {
     @Published var referenceImages: [AppReferenceImage]
     @Published var viewerStatus: String
     @Published private(set) var sceneRevision: Int
+    @Published var activeSketchPlane: SketchPlane?
+    @Published var activeSketchTool: SketchTool
+    @Published var sketchEntities: [SketchEntity]
+    @Published var sketchPreviewPoints: [CGPoint]
+    @Published private(set) var hasClosedSketchProfile: Bool
 
     let kernelSession = HCADKernelSession()
 
@@ -46,6 +86,11 @@ final class WorkspaceState: ObservableObject {
         self.referenceImages = []
         self.viewerStatus = "Demo scene loaded"
         self.sceneRevision = 0
+        self.activeSketchPlane = nil
+        self.activeSketchTool = .line
+        self.sketchEntities = []
+        self.sketchPreviewPoints = []
+        self.hasClosedSketchProfile = false
     }
 
     var visibleBodies: [AppBody] {
@@ -53,6 +98,14 @@ final class WorkspaceState: ObservableObject {
             return bodies.filter(\.isVisible)
         }
         return bodies.filter { $0.isVisible && isolatedBodyIDs.contains($0.id) }
+    }
+
+    var isSketchModeActive: Bool {
+        activeSketchPlane != nil
+    }
+
+    var isExtrudeAvailable: Bool {
+        isSketchModeActive && hasClosedSketchProfile
     }
 
     func importBundledSTEP() {
@@ -153,5 +206,310 @@ final class WorkspaceState: ObservableObject {
         guard referenceImages.isEmpty == false else { return }
         referenceImages[0].scale = SIMD3<Double>(repeating: scale)
         viewerStatus = "Reference scale \(String(format: "%.2f", scale))"
+    }
+
+    func enterSketchMode(on plane: SketchPlane) {
+        activeSketchPlane = plane
+        activeSketchTool = .line
+        sketchEntities = []
+        sketchPreviewPoints = []
+        hasClosedSketchProfile = false
+        isolatedBodyIDs = nil
+        viewerStatus = "Sketching on \(plane.title)"
+    }
+
+    func exitSketchMode() {
+        activeSketchPlane = nil
+        sketchEntities = []
+        sketchPreviewPoints = []
+        hasClosedSketchProfile = false
+        viewerStatus = "Sketch mode exited"
+    }
+
+    func updateSketchPreview(with displayPoints: [CGPoint]) {
+        sketchPreviewPoints = displayPoints
+    }
+
+    func commitSketchStroke(displayPoints: [CGPoint], canvasSize: CGSize) {
+        guard let activeSketchPlane, displayPoints.count >= 2 else {
+            sketchPreviewPoints = []
+            return
+        }
+
+        let entity: SketchEntity?
+        switch activeSketchTool {
+        case .line:
+            entity = makeLineEntity(from: displayPoints, canvasSize: canvasSize)
+        case .arc:
+            entity = makeArcEntity(from: displayPoints, canvasSize: canvasSize)
+        case .spline:
+            entity = makeSplineEntity(from: displayPoints, canvasSize: canvasSize)
+        }
+
+        sketchPreviewPoints = []
+
+        guard let entity else {
+            viewerStatus = "Sketch stroke too short for \(activeSketchTool.title.lowercased())"
+            return
+        }
+
+        sketchEntities.append(entity)
+        hasClosedSketchProfile = detectClosedProfile(in: sketchEntities)
+        viewerStatus = hasClosedSketchProfile
+            ? "\(activeSketchPlane.title) profile closed"
+            : "\(activeSketchTool.title) added"
+    }
+
+    func extrudeClosedProfile() {
+        guard let sketchPlane = activeSketchPlane else {
+            viewerStatus = "Select a sketch plane first"
+            return
+        }
+        guard let profilePoints = orderedClosedProfilePoints() else {
+            viewerStatus = "Closed profile required for extrude"
+            return
+        }
+
+        let nsValues = profilePoints.map { NSValue(cgPoint: $0) }
+        var error: NSError?
+        let scene = kernelSession.extrudeProfilePoints(nsValues, onPlane: sketchPlane.rawValue, depth: 60.0, error: &error)
+        if let error {
+            viewerStatus = error.localizedDescription
+            return
+        }
+
+        bodies = scene.bodies.map {
+            AppBody(
+                id: $0.identifier,
+                name: $0.name,
+                kind: $0.kind,
+                isVisible: true,
+                transparency: 0.0
+            )
+        }
+        selectedBodyID = bodies.first?.id
+        isolatedBodyIDs = nil
+        activeSketchPlane = nil
+        sketchEntities = []
+        sketchPreviewPoints = []
+        hasClosedSketchProfile = false
+        sceneRevision += 1
+        viewerStatus = "Extrude created"
+    }
+
+    private func makeLineEntity(from displayPoints: [CGPoint], canvasSize: CGSize) -> SketchEntity? {
+        guard let first = displayPoints.first, let last = displayPoints.last, distance(first, last) >= 4 else {
+            return nil
+        }
+        let display = [first, last]
+        return SketchEntity(
+            id: UUID(),
+            tool: .line,
+            displayPoints: display,
+            planePoints: display.map { planePoint(from: $0, canvasSize: canvasSize) }
+        )
+    }
+
+    private func makeArcEntity(from displayPoints: [CGPoint], canvasSize: CGSize) -> SketchEntity? {
+        guard let first = displayPoints.first, let last = displayPoints.last else { return nil }
+        let middle = displayPoints[displayPoints.count / 2]
+        guard distance(first, last) >= 4 else { return nil }
+
+        let sampled = sampleArc(start: first, through: middle, end: last)
+        guard sampled.count >= 3 else {
+            return makeLineEntity(from: displayPoints, canvasSize: canvasSize)
+        }
+
+        return SketchEntity(
+            id: UUID(),
+            tool: .arc,
+            displayPoints: sampled,
+            planePoints: sampled.map { planePoint(from: $0, canvasSize: canvasSize) }
+        )
+    }
+
+    private func makeSplineEntity(from displayPoints: [CGPoint], canvasSize: CGSize) -> SketchEntity? {
+        let simplified = simplify(points: displayPoints, minimumDistance: 6)
+        guard simplified.count >= 3 else { return nil }
+        return SketchEntity(
+            id: UUID(),
+            tool: .spline,
+            displayPoints: simplified,
+            planePoints: simplified.map { planePoint(from: $0, canvasSize: canvasSize) }
+        )
+    }
+
+    private func planePoint(from displayPoint: CGPoint, canvasSize: CGSize) -> CGPoint {
+        let scale = max(min(canvasSize.width, canvasSize.height) / 240.0, 1.0)
+        let centeredX = (displayPoint.x - canvasSize.width / 2.0) / scale
+        let centeredY = (canvasSize.height / 2.0 - displayPoint.y) / scale
+        return CGPoint(x: centeredX, y: centeredY)
+    }
+
+    private func detectClosedProfile(in entities: [SketchEntity]) -> Bool {
+        guard entities.count >= 2 else { return false }
+
+        let tolerance = 10.0
+        struct Cluster {
+            var center: CGPoint
+            var degree: Int
+        }
+
+        var clusters: [Cluster] = []
+
+        func clusterIndex(for point: CGPoint) -> Int {
+            if let index = clusters.firstIndex(where: { distance($0.center, point) <= tolerance }) {
+                return index
+            }
+            clusters.append(Cluster(center: point, degree: 0))
+            return clusters.count - 1
+        }
+
+        var adjacency: [Int: Set<Int>] = [:]
+
+        for entity in entities {
+            guard let start = entity.planePoints.first, let end = entity.planePoints.last else { continue }
+            let startIndex = clusterIndex(for: start)
+            let endIndex = clusterIndex(for: end)
+            if startIndex == endIndex { return false }
+            clusters[startIndex].degree += 1
+            clusters[endIndex].degree += 1
+            adjacency[startIndex, default: []].insert(endIndex)
+            adjacency[endIndex, default: []].insert(startIndex)
+        }
+
+        guard clusters.count >= 3 else { return false }
+        guard clusters.allSatisfy({ $0.degree == 2 }) else { return false }
+
+        var visited: Set<Int> = []
+        var stack = [0]
+        while let current = stack.popLast() {
+            if !visited.insert(current).inserted { continue }
+            stack.append(contentsOf: adjacency[current, default: []].filter { !visited.contains($0) })
+        }
+        return visited.count == clusters.count
+    }
+
+    private func orderedClosedProfilePoints() -> [CGPoint]? {
+        guard hasClosedSketchProfile, let firstEntity = sketchEntities.first else { return nil }
+
+        let tolerance = 10.0
+        var ordered = firstEntity.planePoints
+        for entity in sketchEntities.dropFirst() {
+            guard let currentEnd = ordered.last,
+                  let start = entity.planePoints.first,
+                  let end = entity.planePoints.last else { return nil }
+
+            if distance(currentEnd, start) <= tolerance {
+                ordered.append(contentsOf: entity.planePoints.dropFirst())
+            } else if distance(currentEnd, end) <= tolerance {
+                ordered.append(contentsOf: entity.planePoints.reversed().dropFirst())
+            } else {
+                return nil
+            }
+        }
+
+        guard let first = ordered.first, let last = ordered.last else { return nil }
+        if distance(first, last) > tolerance {
+            ordered.append(first)
+        } else {
+            ordered[ordered.count - 1] = first
+        }
+
+        return simplify(points: ordered, minimumDistance: 2)
+    }
+
+    private func simplify(points: [CGPoint], minimumDistance: Double) -> [CGPoint] {
+        guard let first = points.first else { return [] }
+        var result = [first]
+        for point in points.dropFirst() where distance(result.last ?? point, point) >= minimumDistance {
+            result.append(point)
+        }
+        if let last = points.last, result.last != last {
+            result.append(last)
+        }
+        return result
+    }
+
+    private func sampleArc(start: CGPoint, through middle: CGPoint, end: CGPoint) -> [CGPoint] {
+        let determinant = 2.0 * (
+            start.x * (middle.y - end.y) +
+            middle.x * (end.y - start.y) +
+            end.x * (start.y - middle.y)
+        )
+        guard abs(determinant) > 0.001 else {
+            return [start, end]
+        }
+
+        let startSq = start.x * start.x + start.y * start.y
+        let middleSq = middle.x * middle.x + middle.y * middle.y
+        let endSq = end.x * end.x + end.y * end.y
+
+        let centerX = (
+            startSq * (middle.y - end.y) +
+            middleSq * (end.y - start.y) +
+            endSq * (start.y - middle.y)
+        ) / determinant
+        let centerY = (
+            startSq * (end.x - middle.x) +
+            middleSq * (start.x - end.x) +
+            endSq * (middle.x - start.x)
+        ) / determinant
+
+        let center = CGPoint(x: centerX, y: centerY)
+        let radius = distance(center, start)
+        guard radius > 0.001 else {
+            return [start, end]
+        }
+
+        let startAngle = atan2(start.y - center.y, start.x - center.x)
+        let middleAngle = atan2(middle.y - center.y, middle.x - center.x)
+        let endAngle = atan2(end.y - center.y, end.x - center.x)
+
+        let ccwSweep = normalizedSweep(from: startAngle, to: endAngle, passing: middleAngle, clockwise: false)
+        let cwSweep = normalizedSweep(from: startAngle, to: endAngle, passing: middleAngle, clockwise: true)
+        let useClockwise = abs(cwSweep) < abs(ccwSweep)
+        let sweep = useClockwise ? cwSweep : ccwSweep
+
+        let segmentCount = 24
+        return (0...segmentCount).map { index in
+            let t = Double(index) / Double(segmentCount)
+            let angle = startAngle + sweep * t
+            return CGPoint(
+                x: center.x + cos(angle) * radius,
+                y: center.y + sin(angle) * radius
+            )
+        }
+    }
+
+    private func normalizedSweep(from start: Double, to end: Double, passing middle: Double, clockwise: Bool) -> Double {
+        func normalize(_ angle: Double) -> Double {
+            var value = angle
+            while value < 0 { value += .pi * 2 }
+            while value >= .pi * 2 { value -= .pi * 2 }
+            return value
+        }
+
+        let startN = normalize(start)
+        let endN = normalize(end)
+        let middleN = normalize(middle)
+
+        if clockwise {
+            var sweep = endN - startN
+            if sweep > 0 { sweep -= .pi * 2 }
+            let midSweep = middleN - startN
+            let normalizedMidSweep = midSweep > 0 ? midSweep - .pi * 2 : midSweep
+            return normalizedMidSweep >= sweep ? sweep : sweep - .pi * 2
+        } else {
+            var sweep = endN - startN
+            if sweep < 0 { sweep += .pi * 2 }
+            let midSweep = middleN - startN
+            let normalizedMidSweep = midSweep < 0 ? midSweep + .pi * 2 : midSweep
+            return normalizedMidSweep <= sweep ? sweep : sweep + .pi * 2
+        }
+    }
+
+    private func distance(_ lhs: CGPoint, _ rhs: CGPoint) -> Double {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y)
     }
 }

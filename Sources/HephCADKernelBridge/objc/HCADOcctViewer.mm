@@ -4,12 +4,20 @@
 
 #include <AIS_ConnectedInteractive.hxx>
 #include <AIS_Shape.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Aspect_DisplayConnection.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
 #include <Cocoa_Window.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <Message.hxx>
 #include <Prs3d_Drawer.hxx>
@@ -27,6 +35,29 @@
 #include <XSControl_TransferReader.hxx>
 
 #include <algorithm>
+
+namespace
+{
+  struct HCADSketchPlaneDefinition
+  {
+    gp_Pnt origin;
+    gp_Dir normal;
+    gp_Dir xDirection;
+  };
+
+  static HCADSketchPlaneDefinition HCADPlaneForIdentifier(const std::string& theIdentifier)
+  {
+    if (theIdentifier == "front")
+    {
+      return {gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 1.0, 0.0), gp_Dir(1.0, 0.0, 0.0)};
+    }
+    if (theIdentifier == "right")
+    {
+      return {gp_Pnt(0.0, 0.0, 0.0), gp_Dir(1.0, 0.0, 0.0), gp_Dir(0.0, 1.0, 0.0)};
+    }
+    return {gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0), gp_Dir(1.0, 0.0, 0.0)};
+  }
+}
 
 HCADOcctViewer::HCADOcctViewer()
 {
@@ -303,6 +334,64 @@ bool HCADOcctViewer::ImportSTEP(const std::string& theFilename, std::string& the
   {
     displayWithChildren(*aShapeTool, *aColorTool, aLabels.Value(aLabelIndex), TopLoc_Location(), aDefaultStyle, "", aMapOfShapes);
   }
+
+  FitAll();
+  return true;
+}
+
+bool HCADOcctViewer::LoadExtrudedProfile(const std::vector<std::pair<double, double>>& thePoints,
+                                         const std::string& thePlaneIdentifier,
+                                         double theDepth,
+                                         std::string& theError)
+{
+  if (myContext.IsNull())
+  {
+    theError = "Viewer must be initialized before sketch extrude.";
+    return false;
+  }
+
+  if (thePoints.size() < 3)
+  {
+    theError = "Closed sketch profile requires at least three points.";
+    return false;
+  }
+
+  const HCADSketchPlaneDefinition aPlaneDefinition = HCADPlaneForIdentifier(thePlaneIdentifier);
+  const gp_Ax3 anAxis(aPlaneDefinition.origin, aPlaneDefinition.normal, aPlaneDefinition.xDirection);
+  const gp_Dir aYDirection = anAxis.YDirection();
+
+  BRepBuilderAPI_MakePolygon aPolygonBuilder;
+  for (const std::pair<double, double>& aPoint2d : thePoints)
+  {
+    gp_XYZ anOffset = aPlaneDefinition.xDirection.XYZ() * aPoint2d.first + aYDirection.XYZ() * aPoint2d.second;
+    aPolygonBuilder.Add(gp_Pnt(aPlaneDefinition.origin.XYZ() + anOffset));
+  }
+  aPolygonBuilder.Close();
+
+  if (!aPolygonBuilder.IsDone())
+  {
+    theError = "Failed to build sketch polygon.";
+    return false;
+  }
+
+  TopoDS_Wire aWire = aPolygonBuilder.Wire();
+  BRepBuilderAPI_MakeFace aFaceBuilder(gp_Pln(anAxis.Ax2()), aWire, Standard_True);
+  if (!aFaceBuilder.IsDone())
+  {
+    theError = "Failed to build sketch face.";
+    return false;
+  }
+
+  const double anExtrudeDepth = std::max(1.0, theDepth);
+  TopoDS_Shape aSolid = BRepPrimAPI_MakePrism(aFaceBuilder.Face(), gp_Vec(aPlaneDefinition.normal.XYZ() * anExtrudeDepth)).Shape();
+  BRepMesh_IncrementalMesh(aSolid, 1.0, Standard_False, 0.5, Standard_True);
+
+  clearScene();
+
+  Handle(AIS_Shape) aPresentation = new AIS_Shape(aSolid);
+  aPresentation->SetColor(Quantity_NOC_SEAGREEN3);
+  myContext->Display(aPresentation, Standard_False);
+  registerPresentation("sketch-extrude-001", "Sketch Extrude", aPresentation);
 
   FitAll();
   return true;

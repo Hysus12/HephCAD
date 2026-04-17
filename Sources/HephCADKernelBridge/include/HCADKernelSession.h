@@ -51,6 +51,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)zoomAtX:(NSInteger)x y:(NSInteger)y delta:(double)delta;
 - (nullable NSString *)selectBodyAtX:(NSInteger)x y:(NSInteger)y;
 - (void)setIsolatedBodyIDs:(NSArray<NSString *> * _Nullable)bodyIDs;
+- (HCADScenePayload *)extrudeProfilePoints:(NSArray<NSValue *> *)points
+                                   onPlane:(NSString *)planeIdentifier
+                                     depth:(double)depth
+                                     error:(NSError * _Nullable * _Nullable)error;
 
 @end
 

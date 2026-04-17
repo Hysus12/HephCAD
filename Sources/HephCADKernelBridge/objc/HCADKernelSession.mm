@@ -7,7 +7,8 @@
 typedef NS_ENUM(NSInteger, HCADSceneSource) {
     HCADSceneSourceNone = 0,
     HCADSceneSourceDemo,
-    HCADSceneSourceSTEP
+    HCADSceneSourceSTEP,
+    HCADSceneSourceSketchExtrude
 };
 
 @implementation HCADBodyPayload
@@ -44,6 +45,9 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
     NSString *_selectedBodyIdentifier;
     HCADSceneSource _sceneSource;
     NSURL *_stepURL;
+    NSArray<NSValue *> *_sketchProfilePoints;
+    NSString *_sketchPlaneIdentifier;
+    double _sketchExtrudeDepth;
 }
 
 - (instancetype)init {
@@ -54,6 +58,9 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
         _selectedBodyIdentifier = nil;
         _sceneSource = HCADSceneSourceNone;
         _stepURL = nil;
+        _sketchProfilePoints = @[];
+        _sketchPlaneIdentifier = @"top";
+        _sketchExtrudeDepth = 40.0;
     }
     return self;
 }
@@ -69,6 +76,7 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
 - (HCADScenePayload *)makeDemoShape {
     _sceneSource = HCADSceneSourceDemo;
     _stepURL = nil;
+    _sketchProfilePoints = @[];
 
     if (_viewer != nullptr) {
         [self syncBodiesFromRecords:_viewer->Bodies()];
@@ -84,6 +92,7 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
 - (HCADScenePayload *)importSTEPAtURL:(NSURL *)url error:(NSError * _Nullable __autoreleasing *)error {
     _sceneSource = HCADSceneSourceSTEP;
     _stepURL = url;
+    _sketchProfilePoints = @[];
 
     std::string errorMessage;
     bool didImport = _viewer->ImportSTEP(url.path.UTF8String, errorMessage);
@@ -99,6 +108,40 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
 
     [self syncBodiesFromRecords:_viewer->Bodies()];
     _selectedBodyIdentifier = nil;
+    return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
+}
+
+- (HCADScenePayload *)extrudeProfilePoints:(NSArray<NSValue *> *)points
+                                   onPlane:(NSString *)planeIdentifier
+                                     depth:(double)depth
+                                     error:(NSError * _Nullable __autoreleasing *)error {
+    _sceneSource = HCADSceneSourceSketchExtrude;
+    _stepURL = nil;
+    _sketchProfilePoints = [points copy];
+    _sketchPlaneIdentifier = [planeIdentifier copy];
+    _sketchExtrudeDepth = depth;
+
+    std::vector<std::pair<double, double>> profilePoints;
+    profilePoints.reserve(points.count);
+    for (NSValue *value in points) {
+        CGPoint point = value.CGPointValue;
+        profilePoints.emplace_back(point.x, point.y);
+    }
+
+    std::string errorMessage;
+    bool didExtrude = _viewer->LoadExtrudedProfile(profilePoints, _sketchPlaneIdentifier.UTF8String, depth, errorMessage);
+    if (!didExtrude) {
+        if (error != nil) {
+            NSString *message = errorMessage.empty() ? @"Sketch extrude failed." : [NSString stringWithUTF8String:errorMessage.c_str()];
+            *error = [NSError errorWithDomain:@"HephCAD.KernelSession"
+                                         code:3
+                                     userInfo:@{NSLocalizedDescriptionKey: message}];
+        }
+        return [[HCADScenePayload alloc] initWithBodies:@[]];
+    }
+
+    [self syncBodiesFromRecords:_viewer->Bodies()];
+    _selectedBodyIdentifier = _currentBodies.firstObject.identifier;
     return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
 }
 
@@ -172,6 +215,20 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
                 if (_viewer->ImportSTEP(_stepURL.path.UTF8String, errorMessage)) {
                     [self syncBodiesFromRecords:_viewer->Bodies()];
                 }
+            }
+            break;
+        }
+        case HCADSceneSourceSketchExtrude: {
+            std::vector<std::pair<double, double>> profilePoints;
+            profilePoints.reserve(_sketchProfilePoints.count);
+            for (NSValue *value in _sketchProfilePoints) {
+                CGPoint point = value.CGPointValue;
+                profilePoints.emplace_back(point.x, point.y);
+            }
+
+            std::string errorMessage;
+            if (_viewer->LoadExtrudedProfile(profilePoints, _sketchPlaneIdentifier.UTF8String, _sketchExtrudeDepth, errorMessage)) {
+                [self syncBodiesFromRecords:_viewer->Bodies()];
             }
             break;
         }
