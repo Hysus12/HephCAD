@@ -5,6 +5,7 @@ struct ViewerContainer: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, HCADViewerSelectionDelegate {
         let state: WorkspaceState
+        var lastAppliedSceneRevision: Int?
 
         init(state: WorkspaceState) {
             self.state = state
@@ -29,6 +30,11 @@ struct ViewerContainer: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: HCADViewerViewController, context: Context) {
+        if context.coordinator.lastAppliedSceneRevision != state.sceneRevision {
+            uiViewController.reloadScene()
+            context.coordinator.lastAppliedSceneRevision = state.sceneRevision
+        }
+
         if let isolated = state.isolatedBodyIDs {
             uiViewController.applyIsolation(forBodyIDs: Array(isolated))
         } else {

@@ -91,9 +91,10 @@ Runtime features currently treated as verified working:
 - transparency control path
 
 Visible UI or functionality that should be treated cautiously:
-- `Import STEP` button is wired to bundled sample import, but should not be treated as fully validated unless rechecked on device in the current build
-- `Isolate` button is wired in state/viewer flow, but should not be treated as validated unless rechecked on device
+- `Import STEP` button is wired to bundled sample import and now forces a viewer scene reload when the active document changes, but it should not be treated as fully device-validated unless rechecked on iPad in the current build
+- `Isolate` button is wired in state/viewer flow, and STEP import now clears stale isolation state when switching away from the demo scene, but isolate should still be treated as needing device revalidation
 - reference image controls are wired in inspector and viewer overlay flow, but should not be treated as validated unless rechecked on device
+- tapping a body in the inspector selects app state, but there is no confirmed reverse viewer highlight/update path from inspector selection back into the OCCT view
 
 UI that is present but should be treated as placeholder/non-CAD-authoring UI:
 - there is no real sketch authoring toolchain yet
@@ -142,6 +143,9 @@ Preferred order:
 3. Fix only the first concrete runtime blocker discovered on device
 4. After the current `iphoneos` runtime path is stable enough, finish `iphonesimulator` OCCT dependency output
 5. Only then continue Phase 1 implementation gaps in small, testable steps
+
+Smallest slice completed after this checkpoint:
+- viewer scene reload is now explicitly tied to document/scene revision changes in SwiftUI state, so STEP import is less likely to appear as a shell-only action with stale demo geometry still on screen
 
 What should not be touched yet:
 - app architecture

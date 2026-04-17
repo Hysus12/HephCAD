@@ -25,6 +25,7 @@ final class WorkspaceState: ObservableObject {
     @Published var isolatedBodyIDs: Set<String>?
     @Published var referenceImages: [AppReferenceImage]
     @Published var viewerStatus: String
+    @Published private(set) var sceneRevision: Int
 
     let kernelSession = HCADKernelSession()
 
@@ -44,6 +45,7 @@ final class WorkspaceState: ObservableObject {
         self.isolatedBodyIDs = nil
         self.referenceImages = []
         self.viewerStatus = "Demo scene loaded"
+        self.sceneRevision = 0
     }
 
     var visibleBodies: [AppBody] {
@@ -76,6 +78,8 @@ final class WorkspaceState: ObservableObject {
             )
         }
         selectedBodyID = bodies.first?.id
+        isolatedBodyIDs = nil
+        sceneRevision += 1
         viewerStatus = "STEP imported"
     }
 
