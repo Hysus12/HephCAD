@@ -30,12 +30,12 @@
 ### Current Status
 
 - Done: OCCT-backed viewer/controller code 已接入 repo；gesture wiring、selection delegate、STEP sample `screw.step` 匯入路徑、isolate/transparency/reference image overlay wiring 已切到 real path
-- Verified: app target 已通過 Swift compile，並到達 OCCT link 階段
+- Verified: app target 已可完成 `iphoneos` build/link，`scripts/run_ios_build_check.sh` 成功
 - Done: OCCT dependency backend 已切換為 CMake + Ninja；app-side `.xcodeproj` 僅做最小 linker 補正（`TKDE`, `TKBinL`, `TKBin`, `TKBinXCAF`）
 - Verified: 新 `iphoneos` Ninja configure 成功；`TKernel` 已成功編譯並安裝到 `third_party/build/occt/install/iphoneos/lib/libTKernel.a`
-- In progress: `iphoneos` frontier targets (`TKOpenGles`, `TKDESTEP`, `TKBinXCAF`) 與其完整 transitive OCCT libs install、app target最終 link 驗證
-- Blocked now: `iphoneos` 新路徑尚未產出完整 Phase 1 OCCT toolkit closure；`iphonesimulator` 尚未開始；因此 app link 尚未重新驗證
-- Pending: 完整 device/simulator build 驗證與剩餘 OCCT linkage 收斂
+- Verified: app 已在真實 iPad 上成功啟動，UI shell 與 demo 3D model 可見，basic viewing 可用，transparency 可用
+- In progress: 將 device runtime 驗證從「可啟動/可見」擴展到 STEP import、selection、isolate、reference image controls 的逐項確認
+- Pending: `iphonesimulator` OCCT libs、完整 device runtime checklist、剩餘 Phase 1 缺口收斂
 
 ### Exit Criteria
 

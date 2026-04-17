@@ -7,61 +7,61 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A00100010000000000000001 /* HephCADApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000001 /* HephCADApp.swift */; };
-		A00100010000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000002 /* AppDelegate.swift */; };
-		A00100010000000000000003 /* WorkspaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000003 /* WorkspaceState.swift */; };
-		A00100010000000000000004 /* WorkspaceRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000004 /* WorkspaceRootView.swift */; };
-		A00100010000000000000005 /* ViewerWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000005 /* ViewerWorkspaceView.swift */; };
-		A00100010000000000000006 /* ViewerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000006 /* ViewerContainer.swift */; };
-		A00100010000000000000007 /* InspectorSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000007 /* InspectorSidebar.swift */; };
-		A00100010000000000000008 /* HCADKernelSession.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000008 /* HCADKernelSession.mm */; };
-		A00100010000000000000009 /* HCADOcctDocument.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000009 /* HCADOcctDocument.mm */; };
-		A0010001000000000000000A /* HCADViewerViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000A /* HCADViewerViewController.mm */; };
-		A0010001000000000000000B /* box.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000B /* box.step */; };
-		A0010001000000000000000C /* bracket.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000C /* bracket.step */; };
-		A0010001000000000000000D /* grid.png in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000D /* grid.png */; };
+		A00100010000000000000001 /* HephCADApp/HephCADApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000001 /* HephCADApp/HephCADApp.swift */; };
+		A00100010000000000000002 /* HephCADApp/AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000002 /* HephCADApp/AppDelegate.swift */; };
+		A00100010000000000000003 /* HephCADApp/Workspace/WorkspaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000003 /* HephCADApp/Workspace/WorkspaceState.swift */; };
+		A00100010000000000000004 /* HephCADApp/Workspace/WorkspaceRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000004 /* HephCADApp/Workspace/WorkspaceRootView.swift */; };
+		A00100010000000000000005 /* HephCADApp/Viewer/ViewerWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000005 /* HephCADApp/Viewer/ViewerWorkspaceView.swift */; };
+		A00100010000000000000006 /* HephCADApp/Viewer/ViewerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000006 /* HephCADApp/Viewer/ViewerContainer.swift */; };
+		A00100010000000000000007 /* HephCADApp/Inspector/InspectorSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000007 /* HephCADApp/Inspector/InspectorSidebar.swift */; };
+		A00100010000000000000008 /* ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000008 /* ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm */; };
+		A00100010000000000000009 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000009 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm */; };
+		A0010001000000000000000A /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000A /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm */; };
+		A0010001000000000000000B /* HephCADApp/Resources/SampleModels/step/box.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000B /* HephCADApp/Resources/SampleModels/step/box.step */; };
+		A0010001000000000000000C /* HephCADApp/Resources/SampleModels/step/bracket.step in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000C /* HephCADApp/Resources/SampleModels/step/bracket.step */; };
+		A0010001000000000000000D /* HephCADApp/Resources/ReferenceImages/grid.png in Resources */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000D /* HephCADApp/Resources/ReferenceImages/grid.png */; };
 		A0010001000000000000000E /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000E /* UIKit.framework */; };
 		A0010001000000000000000F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A0020001000000000000000F /* Foundation.framework */; };
 		A00100010000000000000010 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00200010000000000000010 /* SwiftUI.framework */; };
-		A00100010000000000000011 /* HCADGLView.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000011 /* HCADGLView.mm */; };
-		A00100010000000000000012 /* HCADOcctViewer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000012 /* HCADOcctViewer.mm */; };
-		A00100010000000000000013 /* HCADCafShapePrs.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000013 /* HCADCafShapePrs.mm */; };
-		A00100010000000000000014 /* screw.step in Resources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000014 /* screw.step */; };
+		A00100010000000000000011 /* ../../Sources/HephCADViewerBridge/HCADGLView.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000011 /* ../../Sources/HephCADViewerBridge/HCADGLView.mm */; };
+		A00100010000000000000012 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000012 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm */; };
+		A00100010000000000000013 /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000013 /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm */; };
+		A00100010000000000000014 /* HephCADApp/Resources/SampleModels/step/screw.step in Resources */ = {isa = PBXBuildFile; fileRef = A00200010000000000000014 /* HephCADApp/Resources/SampleModels/step/screw.step */; };
 		A00100010000000000000015 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00200010000000000000015 /* OpenGLES.framework */; };
 		A00100010000000000000016 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00200010000000000000016 /* QuartzCore.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A00200010000000000000001 /* HephCADApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/HephCADApp.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/AppDelegate.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000003 /* WorkspaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceState.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000004 /* WorkspaceRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceRootView.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000005 /* ViewerWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerWorkspaceView.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000006 /* ViewerContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerContainer.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000007 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Inspector/InspectorSidebar.swift; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000008 /* HCADKernelSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000009 /* HCADOcctDocument.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000000A /* HCADViewerViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000000B /* box.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/box.step; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000000C /* bracket.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/bracket.step; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000000D /* grid.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HephCADApp/Resources/ReferenceImages/grid.png; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000001 /* HephCADApp/HephCADApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/HephCADApp.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000002 /* HephCADApp/AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/AppDelegate.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000003 /* HephCADApp/Workspace/WorkspaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceState.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000004 /* HephCADApp/Workspace/WorkspaceRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Workspace/WorkspaceRootView.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000005 /* HephCADApp/Viewer/ViewerWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerWorkspaceView.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000006 /* HephCADApp/Viewer/ViewerContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Viewer/ViewerContainer.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000007 /* HephCADApp/Inspector/InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HephCADApp/Inspector/InspectorSidebar.swift; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000008 /* ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000009 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000A /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000B /* HephCADApp/Resources/SampleModels/step/box.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/box.step; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000C /* HephCADApp/Resources/SampleModels/step/bracket.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/bracket.step; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000000D /* HephCADApp/Resources/ReferenceImages/grid.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = HephCADApp/Resources/ReferenceImages/grid.png; sourceTree = SOURCE_ROOT; };
 		A0020001000000000000000E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		A0020001000000000000000F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		A00200010000000000000010 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		A00200010000000000000011 /* HCADGLView.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADViewerBridge/HCADGLView.mm; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000012 /* HCADOcctViewer.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000013 /* HCADCafShapePrs.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000014 /* screw.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/screw.step; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000011 /* ../../Sources/HephCADViewerBridge/HCADGLView.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADViewerBridge/HCADGLView.mm; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000012 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000013 /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000014 /* HephCADApp/Resources/SampleModels/step/screw.step */ = {isa = PBXFileReference; lastKnownFileType = text; path = HephCADApp/Resources/SampleModels/step/screw.step; sourceTree = SOURCE_ROOT; };
 		A00200010000000000000015 /* OpenGLES.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGLES.framework; path = System/Library/Frameworks/OpenGLES.framework; sourceTree = SDKROOT; };
 		A00200010000000000000016 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		A00200010000000000000017 /* HephCADApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HephCADApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A00200010000000000000018 /* HCADKernelSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/include/HCADKernelSession.h; sourceTree = SOURCE_ROOT; };
-		A00200010000000000000019 /* HCADOcctDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.h; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000001A /* HCADOcctViewer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.h; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000001B /* HCADCafShapePrs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.h; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000001C /* HCADViewerViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.h; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000001D /* HCADGLView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADViewerBridge/HCADGLView.h; sourceTree = SOURCE_ROOT; };
-		A0020001000000000000001E /* HephCADApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HephCADApp/HephCADApp-Bridging-Header.h; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000018 /* ../../Sources/HephCADKernelBridge/include/HCADKernelSession.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/include/HCADKernelSession.h; sourceTree = SOURCE_ROOT; };
+		A00200010000000000000019 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.h; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000001A /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.h; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000001B /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.h; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000001C /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADViewerBridge/HCADViewerViewController.h; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000001D /* ../../Sources/HephCADViewerBridge/HCADGLView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../../Sources/HephCADViewerBridge/HCADGLView.h; sourceTree = SOURCE_ROOT; };
+		A0020001000000000000001E /* HephCADApp/HephCADApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HephCADApp/HephCADApp-Bridging-Header.h"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,9 +93,9 @@
 		A00400010000000000000002 /* HephCADApp */ = {
 			isa = PBXGroup;
 			children = (
-				A00200010000000000000001 /* HephCADApp.swift */,
-				A00200010000000000000002 /* AppDelegate.swift */,
-				A0020001000000000000001E /* HephCADApp-Bridging-Header.h */,
+				A00200010000000000000001 /* HephCADApp/HephCADApp.swift */,
+				A00200010000000000000002 /* HephCADApp/AppDelegate.swift */,
+				A0020001000000000000001E /* HephCADApp/HephCADApp-Bridging-Header.h */,
 				A00400010000000000000006 /* Workspace */,
 				A00400010000000000000007 /* Viewer */,
 				A00400010000000000000008 /* Inspector */,
@@ -107,18 +107,18 @@
 		A00400010000000000000003 /* BridgeSources */ = {
 			isa = PBXGroup;
 			children = (
-				A00200010000000000000018 /* HCADKernelSession.h */,
-				A00200010000000000000008 /* HCADKernelSession.mm */,
-				A00200010000000000000019 /* HCADOcctDocument.h */,
-				A00200010000000000000009 /* HCADOcctDocument.mm */,
-				A0020001000000000000001A /* HCADOcctViewer.h */,
-				A00200010000000000000012 /* HCADOcctViewer.mm */,
-				A0020001000000000000001B /* HCADCafShapePrs.h */,
-				A00200010000000000000013 /* HCADCafShapePrs.mm */,
-				A0020001000000000000001C /* HCADViewerViewController.h */,
-				A0020001000000000000000A /* HCADViewerViewController.mm */,
-				A0020001000000000000001D /* HCADGLView.h */,
-				A00200010000000000000011 /* HCADGLView.mm */,
+				A00200010000000000000018 /* ../../Sources/HephCADKernelBridge/include/HCADKernelSession.h */,
+				A00200010000000000000008 /* ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm */,
+				A00200010000000000000019 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.h */,
+				A00200010000000000000009 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm */,
+				A0020001000000000000001A /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.h */,
+				A00200010000000000000012 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm */,
+				A0020001000000000000001B /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.h */,
+				A00200010000000000000013 /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm */,
+				A0020001000000000000001C /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.h */,
+				A0020001000000000000000A /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm */,
+				A0020001000000000000001D /* ../../Sources/HephCADViewerBridge/HCADGLView.h */,
+				A00200010000000000000011 /* ../../Sources/HephCADViewerBridge/HCADGLView.mm */,
 			);
 			name = BridgeSources;
 			sourceTree = "<group>";
@@ -146,8 +146,8 @@
 		A00400010000000000000006 /* Workspace */ = {
 			isa = PBXGroup;
 			children = (
-				A00200010000000000000003 /* WorkspaceState.swift */,
-				A00200010000000000000004 /* WorkspaceRootView.swift */,
+				A00200010000000000000003 /* HephCADApp/Workspace/WorkspaceState.swift */,
+				A00200010000000000000004 /* HephCADApp/Workspace/WorkspaceRootView.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -155,8 +155,8 @@
 		A00400010000000000000007 /* Viewer */ = {
 			isa = PBXGroup;
 			children = (
-				A00200010000000000000005 /* ViewerWorkspaceView.swift */,
-				A00200010000000000000006 /* ViewerContainer.swift */,
+				A00200010000000000000005 /* HephCADApp/Viewer/ViewerWorkspaceView.swift */,
+				A00200010000000000000006 /* HephCADApp/Viewer/ViewerContainer.swift */,
 			);
 			path = Viewer;
 			sourceTree = "<group>";
@@ -164,7 +164,7 @@
 		A00400010000000000000008 /* Inspector */ = {
 			isa = PBXGroup;
 			children = (
-				A00200010000000000000007 /* InspectorSidebar.swift */,
+				A00200010000000000000007 /* HephCADApp/Inspector/InspectorSidebar.swift */,
 			);
 			path = Inspector;
 			sourceTree = "<group>";
@@ -172,10 +172,10 @@
 		A00400010000000000000009 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				A0020001000000000000000B /* box.step */,
-				A0020001000000000000000C /* bracket.step */,
-				A00200010000000000000014 /* screw.step */,
-				A0020001000000000000000D /* grid.png */,
+				A0020001000000000000000B /* HephCADApp/Resources/SampleModels/step/box.step */,
+				A0020001000000000000000C /* HephCADApp/Resources/SampleModels/step/bracket.step */,
+				A00200010000000000000014 /* HephCADApp/Resources/SampleModels/step/screw.step */,
+				A0020001000000000000000D /* HephCADApp/Resources/ReferenceImages/grid.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -238,10 +238,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A0010001000000000000000B /* box.step in Resources */,
-				A0010001000000000000000C /* bracket.step in Resources */,
-				A00100010000000000000014 /* screw.step in Resources */,
-				A0010001000000000000000D /* grid.png in Resources */,
+				A0010001000000000000000B /* HephCADApp/Resources/SampleModels/step/box.step in Resources */,
+				A0010001000000000000000C /* HephCADApp/Resources/SampleModels/step/bracket.step in Resources */,
+				A00100010000000000000014 /* HephCADApp/Resources/SampleModels/step/screw.step in Resources */,
+				A0010001000000000000000D /* HephCADApp/Resources/ReferenceImages/grid.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -252,19 +252,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00100010000000000000001 /* HephCADApp.swift in Sources */,
-				A00100010000000000000002 /* AppDelegate.swift in Sources */,
-				A00100010000000000000003 /* WorkspaceState.swift in Sources */,
-				A00100010000000000000004 /* WorkspaceRootView.swift in Sources */,
-				A00100010000000000000005 /* ViewerWorkspaceView.swift in Sources */,
-				A00100010000000000000006 /* ViewerContainer.swift in Sources */,
-				A00100010000000000000007 /* InspectorSidebar.swift in Sources */,
-				A00100010000000000000008 /* HCADKernelSession.mm in Sources */,
-				A00100010000000000000009 /* HCADOcctDocument.mm in Sources */,
-				A0010001000000000000000A /* HCADViewerViewController.mm in Sources */,
-				A00100010000000000000011 /* HCADGLView.mm in Sources */,
-				A00100010000000000000012 /* HCADOcctViewer.mm in Sources */,
-				A00100010000000000000013 /* HCADCafShapePrs.mm in Sources */,
+				A00100010000000000000001 /* HephCADApp/HephCADApp.swift in Sources */,
+				A00100010000000000000002 /* HephCADApp/AppDelegate.swift in Sources */,
+				A00100010000000000000003 /* HephCADApp/Workspace/WorkspaceState.swift in Sources */,
+				A00100010000000000000004 /* HephCADApp/Workspace/WorkspaceRootView.swift in Sources */,
+				A00100010000000000000005 /* HephCADApp/Viewer/ViewerWorkspaceView.swift in Sources */,
+				A00100010000000000000006 /* HephCADApp/Viewer/ViewerContainer.swift in Sources */,
+				A00100010000000000000007 /* HephCADApp/Inspector/InspectorSidebar.swift in Sources */,
+				A00100010000000000000008 /* ../../Sources/HephCADKernelBridge/objc/HCADKernelSession.mm in Sources */,
+				A00100010000000000000009 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctDocument.mm in Sources */,
+				A0010001000000000000000A /* ../../Sources/HephCADViewerBridge/HCADViewerViewController.mm in Sources */,
+				A00100010000000000000011 /* ../../Sources/HephCADViewerBridge/HCADGLView.mm in Sources */,
+				A00100010000000000000012 /* ../../Sources/HephCADKernelBridge/objc/HCADOcctViewer.mm in Sources */,
+				A00100010000000000000013 /* ../../Sources/HephCADKernelBridge/objc/HCADCafShapePrs.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -321,7 +321,7 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6Q3V8DX93Y;
 				ENABLE_PREVIEWS = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -377,7 +377,6 @@
 					"-lTKLCAF",
 					"-lTKXCAF",
 					"-lTKVCAF",
-					"-lTKBool",
 					"-lTKPrim",
 					"-lTKShHealing",
 					"-lTKHLR",
@@ -386,7 +385,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hephcad.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = HephCADApp/HephCADApp-Bridging-Header.h;
+				SWIFT_OBJC_BRIDGING_HEADER = "HephCADApp/HephCADApp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -397,7 +396,7 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6Q3V8DX93Y;
 				ENABLE_PREVIEWS = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -453,7 +452,6 @@
 					"-lTKLCAF",
 					"-lTKXCAF",
 					"-lTKVCAF",
-					"-lTKBool",
 					"-lTKPrim",
 					"-lTKShHealing",
 					"-lTKHLR",
@@ -462,7 +460,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hephcad.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = HephCADApp/HephCADApp-Bridging-Header.h;
+				SWIFT_OBJC_BRIDGING_HEADER = "HephCADApp/HephCADApp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
