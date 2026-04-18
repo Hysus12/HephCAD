@@ -51,6 +51,9 @@ public:
 
   Standard_EXPORT const std::vector<HCADBodyRecord>& LoadDemoBox();
   Standard_EXPORT bool ImportSTEP(const std::string& theFilename, std::string& theError);
+  Standard_EXPORT bool ValidateClosedProfile(const std::vector<std::pair<double, double>>& thePoints,
+                                             const std::string& thePlaneIdentifier,
+                                             std::string& theError);
   Standard_EXPORT bool LoadExtrudedProfile(const std::vector<std::pair<double, double>>& thePoints,
                                            const std::string& thePlaneIdentifier,
                                            double theDepth,

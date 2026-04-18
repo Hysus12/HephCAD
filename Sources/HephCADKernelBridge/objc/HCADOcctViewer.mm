@@ -57,6 +57,47 @@ namespace
     }
     return {gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0), gp_Dir(1.0, 0.0, 0.0)};
   }
+
+  static bool HCADBuildProfileFace(const std::vector<std::pair<double, double>>& thePoints,
+                                   const std::string& thePlaneIdentifier,
+                                   TopoDS_Face& theFace,
+                                   std::string& theError)
+  {
+    if (thePoints.size() < 3)
+    {
+      theError = "Closed sketch profile requires at least three points.";
+      return false;
+    }
+
+    const HCADSketchPlaneDefinition aPlaneDefinition = HCADPlaneForIdentifier(thePlaneIdentifier);
+    const gp_Ax3 anAxis(aPlaneDefinition.origin, aPlaneDefinition.normal, aPlaneDefinition.xDirection);
+    const gp_Dir aYDirection = anAxis.YDirection();
+
+    BRepBuilderAPI_MakePolygon aPolygonBuilder;
+    for (const std::pair<double, double>& aPoint2d : thePoints)
+    {
+      gp_XYZ anOffset = aPlaneDefinition.xDirection.XYZ() * aPoint2d.first + aYDirection.XYZ() * aPoint2d.second;
+      aPolygonBuilder.Add(gp_Pnt(aPlaneDefinition.origin.XYZ() + anOffset));
+    }
+    aPolygonBuilder.Close();
+
+    if (!aPolygonBuilder.IsDone())
+    {
+      theError = "Failed to build sketch polygon.";
+      return false;
+    }
+
+    const TopoDS_Wire aWire = aPolygonBuilder.Wire();
+    BRepBuilderAPI_MakeFace aFaceBuilder(gp_Pln(anAxis.Ax2()), aWire, Standard_True);
+    if (!aFaceBuilder.IsDone())
+    {
+      theError = "Failed to build sketch face.";
+      return false;
+    }
+
+    theFace = aFaceBuilder.Face();
+    return true;
+  }
 }
 
 HCADOcctViewer::HCADOcctViewer()
@@ -350,40 +391,15 @@ bool HCADOcctViewer::LoadExtrudedProfile(const std::vector<std::pair<double, dou
     return false;
   }
 
-  if (thePoints.size() < 3)
+  TopoDS_Face aFace;
+  if (!HCADBuildProfileFace(thePoints, thePlaneIdentifier, aFace, theError))
   {
-    theError = "Closed sketch profile requires at least three points.";
     return false;
   }
 
   const HCADSketchPlaneDefinition aPlaneDefinition = HCADPlaneForIdentifier(thePlaneIdentifier);
-  const gp_Ax3 anAxis(aPlaneDefinition.origin, aPlaneDefinition.normal, aPlaneDefinition.xDirection);
-  const gp_Dir aYDirection = anAxis.YDirection();
-
-  BRepBuilderAPI_MakePolygon aPolygonBuilder;
-  for (const std::pair<double, double>& aPoint2d : thePoints)
-  {
-    gp_XYZ anOffset = aPlaneDefinition.xDirection.XYZ() * aPoint2d.first + aYDirection.XYZ() * aPoint2d.second;
-    aPolygonBuilder.Add(gp_Pnt(aPlaneDefinition.origin.XYZ() + anOffset));
-  }
-  aPolygonBuilder.Close();
-
-  if (!aPolygonBuilder.IsDone())
-  {
-    theError = "Failed to build sketch polygon.";
-    return false;
-  }
-
-  TopoDS_Wire aWire = aPolygonBuilder.Wire();
-  BRepBuilderAPI_MakeFace aFaceBuilder(gp_Pln(anAxis.Ax2()), aWire, Standard_True);
-  if (!aFaceBuilder.IsDone())
-  {
-    theError = "Failed to build sketch face.";
-    return false;
-  }
-
   const double anExtrudeDepth = std::max(1.0, theDepth);
-  TopoDS_Shape aSolid = BRepPrimAPI_MakePrism(aFaceBuilder.Face(), gp_Vec(aPlaneDefinition.normal.XYZ() * anExtrudeDepth)).Shape();
+  TopoDS_Shape aSolid = BRepPrimAPI_MakePrism(aFace, gp_Vec(aPlaneDefinition.normal.XYZ() * anExtrudeDepth)).Shape();
   BRepMesh_IncrementalMesh(aSolid, 1.0, Standard_False, 0.5, Standard_True);
 
   clearScene();
@@ -395,6 +411,14 @@ bool HCADOcctViewer::LoadExtrudedProfile(const std::vector<std::pair<double, dou
 
   FitAll();
   return true;
+}
+
+bool HCADOcctViewer::ValidateClosedProfile(const std::vector<std::pair<double, double>>& thePoints,
+                                           const std::string& thePlaneIdentifier,
+                                           std::string& theError)
+{
+  TopoDS_Face aFace;
+  return HCADBuildProfileFace(thePoints, thePlaneIdentifier, aFace, theError);
 }
 
 const std::vector<HCADBodyRecord>& HCADOcctViewer::Bodies() const

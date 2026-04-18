@@ -254,10 +254,7 @@ final class WorkspaceState: ObservableObject {
         }
 
         sketchEntities.append(entity)
-        hasClosedSketchProfile = detectClosedProfile(in: sketchEntities)
-        viewerStatus = hasClosedSketchProfile
-            ? "\(activeSketchPlane.title) profile closed"
-            : "\(activeSketchTool.title) added"
+        refreshProfileState(on: activeSketchPlane)
     }
 
     func extrudeClosedProfile() {
@@ -298,7 +295,15 @@ final class WorkspaceState: ObservableObject {
     }
 
     private func makeLineEntity(from displayPoints: [CGPoint], canvasSize: CGSize) -> SketchEntity? {
-        guard let first = displayPoints.first, let last = displayPoints.last, distance(first, last) >= 4 else {
+        guard let rawFirst = displayPoints.first, let rawLast = displayPoints.last else {
+            return nil
+        }
+
+        let first = snappedDisplayPoint(rawFirst, canvasSize: canvasSize, preferLastEndpoint: true)
+        var last = snappedDisplayPoint(rawLast, canvasSize: canvasSize, preferLastEndpoint: false)
+        last = orthogonallyAdjustedPoint(start: first, end: last)
+
+        if distance(first, last) < 4 {
             return nil
         }
         let display = [first, last]
@@ -315,7 +320,9 @@ final class WorkspaceState: ObservableObject {
         let middle = displayPoints[displayPoints.count / 2]
         guard distance(first, last) >= 4 else { return nil }
 
-        let sampled = sampleArc(start: first, through: middle, end: last)
+        let snappedStart = snappedDisplayPoint(first, canvasSize: canvasSize, preferLastEndpoint: true)
+        let snappedEnd = snappedDisplayPoint(last, canvasSize: canvasSize, preferLastEndpoint: false)
+        let sampled = sampleArc(start: snappedStart, through: middle, end: snappedEnd)
         guard sampled.count >= 3 else {
             return makeLineEntity(from: displayPoints, canvasSize: canvasSize)
         }
@@ -329,7 +336,13 @@ final class WorkspaceState: ObservableObject {
     }
 
     private func makeSplineEntity(from displayPoints: [CGPoint], canvasSize: CGSize) -> SketchEntity? {
-        let simplified = simplify(points: displayPoints, minimumDistance: 6)
+        var simplified = simplify(points: displayPoints, minimumDistance: 6)
+        if let first = simplified.first {
+            simplified[0] = snappedDisplayPoint(first, canvasSize: canvasSize, preferLastEndpoint: true)
+        }
+        if let last = simplified.last {
+            simplified[simplified.count - 1] = snappedDisplayPoint(last, canvasSize: canvasSize, preferLastEndpoint: false)
+        }
         guard simplified.count >= 3 else { return nil }
         return SketchEntity(
             id: UUID(),
@@ -390,12 +403,13 @@ final class WorkspaceState: ObservableObject {
         return visited.count == clusters.count
     }
 
-    private func orderedClosedProfilePoints() -> [CGPoint]? {
-        guard hasClosedSketchProfile, let firstEntity = sketchEntities.first else { return nil }
+    private func orderedClosedProfilePoints(from entities: [SketchEntity]? = nil) -> [CGPoint]? {
+        let entities = entities ?? sketchEntities
+        guard let firstEntity = entities.first else { return nil }
 
         let tolerance = 10.0
         var ordered = firstEntity.planePoints
-        for entity in sketchEntities.dropFirst() {
+        for entity in entities.dropFirst() {
             guard let currentEnd = ordered.last,
                   let start = entity.planePoints.first,
                   let end = entity.planePoints.last else { return nil }
@@ -417,6 +431,59 @@ final class WorkspaceState: ObservableObject {
         }
 
         return simplify(points: ordered, minimumDistance: 2)
+    }
+
+    private func refreshProfileState(on plane: SketchPlane) {
+        guard detectClosedProfile(in: sketchEntities),
+              let profilePoints = orderedClosedProfilePoints(from: sketchEntities) else {
+            hasClosedSketchProfile = false
+            viewerStatus = "\(activeSketchTool.title) added"
+            return
+        }
+
+        let nsValues = profilePoints.map { NSValue(cgPoint: $0) }
+        do {
+            try kernelSession.validateClosedProfilePoints(nsValues, onPlane: plane.rawValue)
+            hasClosedSketchProfile = true
+            viewerStatus = "\(plane.title) profile ready for Extrude"
+        } catch {
+            hasClosedSketchProfile = false
+            viewerStatus = error.localizedDescription
+        }
+    }
+
+    private func snappedDisplayPoint(_ point: CGPoint, canvasSize: CGSize, preferLastEndpoint: Bool) -> CGPoint {
+        let tolerance = 18.0
+        let endpoints = sketchEntities.flatMap { entity -> [CGPoint] in
+            guard let start = entity.displayPoints.first, let end = entity.displayPoints.last else { return [] }
+            return [start, end]
+        }
+
+        if preferLastEndpoint,
+           let last = sketchEntities.last?.displayPoints.last,
+           distance(last, point) <= tolerance {
+            return last
+        }
+
+        if let snapped = endpoints.min(by: { distance($0, point) < distance($1, point) }),
+           distance(snapped, point) <= tolerance {
+            return snapped
+        }
+
+        return point
+    }
+
+    private func orthogonallyAdjustedPoint(start: CGPoint, end: CGPoint) -> CGPoint {
+        let tolerance = 12.0
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        if abs(dx) <= tolerance {
+            return CGPoint(x: start.x, y: end.y)
+        }
+        if abs(dy) <= tolerance {
+            return CGPoint(x: end.x, y: start.y)
+        }
+        return end
     }
 
     private func simplify(points: [CGPoint], minimumDistance: Double) -> [CGPoint] {
@@ -476,8 +543,8 @@ final class WorkspaceState: ObservableObject {
             let t = Double(index) / Double(segmentCount)
             let angle = startAngle + sweep * t
             return CGPoint(
-                x: center.x + cos(angle) * radius,
-                y: center.y + sin(angle) * radius
+                x: center.x + CGFloat(Darwin.cos(angle) * radius),
+                y: center.y + CGFloat(Darwin.sin(angle) * radius)
             )
         }
     }

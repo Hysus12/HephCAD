@@ -52,6 +52,7 @@ Current dependency build path:
 App build path:
 - checked-in Xcode project: [apps/ipad/HephCADApp.xcodeproj](/Users/hysus/Documents/dev/3D_editor/HephCAD/apps/ipad/HephCADApp.xcodeproj)
 - build verification entrypoint: [scripts/run_ios_build_check.sh](/Users/hysus/Documents/dev/3D_editor/HephCAD/scripts/run_ios_build_check.sh)
+- Apple Pencil / trackpad modeling interaction source of truth: [docs/apple_pencil_modeling_logic.md](/Users/hysus/Documents/dev/3D_editor/HephCAD/docs/apple_pencil_modeling_logic.md)
 
 Runtime/viewer path:
 - `HCADViewerViewController` hosts the real viewer interaction path
@@ -97,6 +98,7 @@ Visible UI or functionality that should be treated cautiously:
 - tapping a body in the inspector selects app state, but there is no confirmed reverse viewer highlight/update path from inspector selection back into the OCCT view
 - plane-based `Pencil Sketch` entry is now implemented in the app shell for `Top`, `Front`, and `Right` origin planes
 - line / arc / fit-point spline stroke capture, closed-profile detection, and contextual `Extrude` surfacing are now implemented in code, but they should be treated as pending device validation until the full Pencil path is exercised on iPad
+- the sketch path now uses OCC closed-profile validation before surfacing `Extrude`, and line endpoints now snap to existing sketch endpoints with a small orthogonal assist for rectangular profiles
 - `Revolve` is still not implemented and is intentionally not surfaced as an active tool yet
 
 UI that is present but should be treated as placeholder/non-CAD-authoring UI:
@@ -123,6 +125,7 @@ Missing implementations:
 - deeper selection semantics and editing workflows
 - Pencil sketch mode currently targets origin planes, not arbitrary picked faces
 - sketch entities are converted to an extrudable closed profile with a lightweight app-side sketch model; they are not yet backed by a full persistent CAD sketch system
+- the current Pencil sketch path is more trustworthy for solid construction than before, but still needs device validation for the full plane -> line(s) -> valid profile -> extrude workflow
 
 Known risks:
 - OCCT iOS runtime path still depends on the current OpenGL ES sample-style route

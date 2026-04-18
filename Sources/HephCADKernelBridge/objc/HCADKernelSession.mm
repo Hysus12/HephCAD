@@ -145,6 +145,27 @@ typedef NS_ENUM(NSInteger, HCADSceneSource) {
     return [[HCADScenePayload alloc] initWithBodies:_currentBodies];
 }
 
+- (BOOL)validateClosedProfilePoints:(NSArray<NSValue *> *)points
+                            onPlane:(NSString *)planeIdentifier
+                              error:(NSError * _Nullable __autoreleasing *)error {
+    std::vector<std::pair<double, double>> profilePoints;
+    profilePoints.reserve(points.count);
+    for (NSValue *value in points) {
+        CGPoint point = value.CGPointValue;
+        profilePoints.emplace_back(point.x, point.y);
+    }
+
+    std::string errorMessage;
+    bool isValid = _viewer->ValidateClosedProfile(profilePoints, planeIdentifier.UTF8String, errorMessage);
+    if (!isValid && error != nil) {
+        NSString *message = errorMessage.empty() ? @"Sketch profile is not valid for a face." : [NSString stringWithUTF8String:errorMessage.c_str()];
+        *error = [NSError errorWithDomain:@"HephCAD.KernelSession"
+                                     code:4
+                                 userInfo:@{NSLocalizedDescriptionKey: message}];
+    }
+    return isValid;
+}
+
 - (BOOL)exportSTEPForBodyIDs:(NSArray<NSString *> *)bodyIDs
                        toURL:(NSURL *)url
                        error:(NSError * _Nullable __autoreleasing *)error {
