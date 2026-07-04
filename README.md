@@ -1,41 +1,109 @@
 # HephCAD
 
-開源、iPad 優先、觸控與 Apple Pencil 好上手的 B-rep 直接建模 CAD。UX 對標 Shapr3D 的核心體驗：**在任意面上畫草圖 → 拖曳擠出 → 自動布林**。
+![HephCAD viewport showing a cube on a dark CAD grid with touch-first controls](docs/assets/viewport-cube.png)
 
-技術棧：TypeScript + Vite + React + Three.js，幾何核心為 OCCT 編譯成 WebAssembly（在 Web Worker 內執行）。iPad 以 PWA 使用。細節見 [docs/adr/](docs/adr/)。
+HephCAD is an open-source, iPad-first B-rep CAD experiment.
 
-> 本 repo 於 2026-07-03 重新開始（見 [docs/RESTART_NOTE.md](docs/RESTART_NOTE.md)）。
+The goal is a touch and Apple Pencil friendly direct modeling app: sketch on a face, drag to extrude, and let the kernel handle clean B-rep operations. Think of the core workflow people expect from modern tablet CAD, but built in the open and kept small enough that contributors can actually move it forward.
 
-## 開發
+This repo restarted on 2026-07-03. The current codebase is a Web/WASM implementation using TypeScript, React, Three.js, and OpenCascade compiled to WebAssembly.
+
+## Why This Exists
+
+Most CAD projects are either closed, desktop-first, or too large to approach casually. HephCAD is trying a narrower path:
+
+- iPad and touch-first interaction.
+- B-rep modeling first, not mesh sculpting.
+- Web/PWA delivery before native app complexity.
+- Small milestones with visible, testable progress.
+- Architecture decisions documented before big dependencies or rewrites.
+
+This is not production CAD yet. It is a working foundation looking for people who want to help make open tablet CAD real.
+
+## Current Status
+
+Implemented:
+
+- Three.js viewport with dark CAD grid.
+- Touch/mouse camera controls.
+- ViewCube standard orientation switching.
+- OCCT WebAssembly worker path.
+- Primitive body creation and tessellation.
+- Face, edge, and body picking.
+- Selection highlighting.
+- Items panel with visibility/delete controls.
+- Unit tests for camera, gestures, picking, and state.
+
+Next milestones:
+
+- Face-based sketching: lines, rectangles, circles, arcs, snapping, closed regions.
+- Drag extrusion with automatic boolean behavior.
+- Journal-based undo/redo.
+- OPFS autosave and document format.
+- STEP import/export.
+- Fillet, chamfer, shell, move/copy, offset face.
+- PWA polish for real iPad use.
+
+## Tech Stack
+
+- TypeScript
+- Vite
+- React
+- Three.js
+- OpenCascade via `opencascade.js`
+- Web Worker kernel boundary
+- Zustand state
+- Vitest and ESLint
+
+Architecture notes live in [docs/adr](docs/adr).
+
+## Run Locally
 
 ```bash
 npm install
-npm run dev        # 開發伺服器（--host，iPad 可連同網段 IP）
-npm run test       # 單元測試（Vitest）
-npm run lint       # ESLint
-npm run typecheck  # tsc
-npm run build      # 產出 dist/
+npm run dev
 ```
 
-## 里程碑
+Useful checks:
 
-- [x] **M0 基建**：scaffold、Three.js 場景、觸控相機（單指旋轉、雙指平移縮放）、ViewCube、CI
-- [x] **M1 Kernel 通道**：OCCT wasm worker、primitive 建模、tessellation 上屏（含 face/edge 拓撲映射）
-- [x] **M2 選取**：face/edge/body picking 與高亮、項目面板（顯示/隱藏/刪除）、縫線邊過濾
-- [ ] **M3 草圖**：面上草圖、直線/矩形/圓/圓弧、snapping、閉合區域偵測
-- [ ] **M4 拖曳擠出 + 布林**（產品核心驗收）
-- [ ] **M5 文件與歷程**：journal undo/redo、OPFS 自動存檔、STEP 匯入/匯出
-- [ ] **M6 修改工具**：移動/複製、圓角/倒角、抽殼、偏移面
-- [ ] **M7 打磨**：量測、剖面、PWA、i18n
-- [ ] **M8 開源化**：文件、demo、授權定案
+```bash
+npm run test
+npm run lint
+npm run typecheck
+npm run build
+```
 
-## 手勢
+For iPad testing, run the dev server with host access and open it from the same network:
 
-| 輸入 | 動作 |
-|---|---|
-| 單指 / 滑鼠左鍵拖曳 | 旋轉視角 |
-| 雙指移動 | 平移 |
-| 雙指捏合 / 滾輪 | 縮放 |
-| 點 ViewCube 面 | 切換標準視角（動畫） |
-| 輕點 | 選取 face/edge（累加，再點取消；點空白清空） |
-| 雙擊 | 選取整個 body |
+```bash
+npm run dev -- --host
+```
+
+## Contributing
+
+Help is especially useful in these areas:
+
+- Sketch plane math and constraint-light 2D editing.
+- OCCT B-rep operations from WebAssembly.
+- Robust topology id mapping across operations.
+- Touch/Pencil UX design for CAD workflows.
+- Three.js rendering and picking performance.
+- iPad PWA testing.
+- Documentation, examples, and small reproducible acceptance tests.
+
+Please keep changes small and verifiable. If a design choice is architectural or dependency-heavy, add an ADR first.
+
+## Project Direction
+
+HephCAD is intentionally scoped:
+
+- B-rep first.
+- Meshes are for import, view, or conversion, not mesh editing.
+- No full history tree in the first version.
+- No cloud, auth, or collaboration in the first version.
+- Reference images matter for MVP workflows.
+- Helix, spring, and thread features should be parametric generators, not freeform sculpting tools.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
