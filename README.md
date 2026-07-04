@@ -1,68 +1,109 @@
 # HephCAD
 
-HephCAD 是一個自用版、iPad 優先、B-rep first 的 CAD app 專案。第一優先是穩定、本地可用、可驗收，並以 Open CASCADE Technology (OCCT) 作為幾何核心，mesh 僅限匯入、檢視與轉檔。
+![HephCAD viewport showing a cube on a dark CAD grid with touch-first controls](docs/assets/viewport-cube.png)
 
-## 目前狀態
+HephCAD is an open-source, iPad-first B-rep CAD experiment.
 
-- Phase 0 已建立文件、repo 結構、Swift core module、測試骨架、CI 骨架與 iPad app shell。
-- Phase 1 已建立最小 viewer/demo 架構、STEP import pipeline 介面、selection/isolate/transparency/reference image 狀態管理。
-- OCCT/lib3mf 真正編譯整合仍需依 `scripts/bootstrap_macos.sh` 準備工具鏈後完成。
-- 目前本機 `swift test` 可通過；`.xcodeproj` 可被 Xcode 解析，但 generic iOS build 受本機 Xcode iOS destination/platform 狀態限制。
+The goal is a touch and Apple Pencil friendly direct modeling app: sketch on a face, drag to extrude, and let the kernel handle clean B-rep operations. Think of the core workflow people expect from modern tablet CAD, but built in the open and kept small enough that contributors can actually move it forward.
 
-## 核心原則
+This repo restarted on 2026-07-03. The current codebase is a Web/WASM implementation using TypeScript, React, Three.js, and OpenCascade compiled to WebAssembly.
 
-- B-rep first；mesh 只做 import/view/convert。
-- iPadOS 17+。
-- 不做 cloud/auth/collaboration。
-- 第一版不做完整 history tree、assembly mating、2D drawings、mesh editing。
-- 先有驗收標準，再做功能。
+## Why This Exists
 
-## Repo 結構
+Most CAD projects are either closed, desktop-first, or too large to approach casually. HephCAD is trying a narrower path:
 
-```text
-apps/ipad/                iPad app shell 與 UI 層
-Sources/                  Swift package modules 與 ObjC++/C++ bridge 骨架
-Tests/                    host-side unit / acceptance spec tests
-docs/                     產品、架構、ADR、roadmap、風險、驗收、限制
-samples/                  golden test assets 與示例檔
-scripts/                  bootstrap、doctor、build/test scripts
-third_party/              third-party 版本鎖定與 build 輸出位置
-```
+- iPad and touch-first interaction.
+- B-rep modeling first, not mesh sculpting.
+- Web/PWA delivery before native app complexity.
+- Small milestones with visible, testable progress.
+- Architecture decisions documented before big dependencies or rewrites.
 
-## 主要模組
+This is not production CAD yet. It is a working foundation looking for people who want to help make open tablet CAD real.
 
-- `HephCADDomain`: 文件、body、scene node、格式 enum 與基礎型別。
-- `HephCADScene`: `WorkspaceStore` 與 viewer command state。
-- `HephCADReferenceImages`: reference image model 與編輯操作。
-- `HephCADTelemetry`: 本地 JSONL telemetry schema。
-- `HephCADIO`: import/export 介面與 stub adapters。
-- `HephCADKernelBridge`: Objective-C++/C++ bridge façade。
-- `HephCADViewerBridge`: iOS viewer controller stub，後續換成 OCCT-backed viewer。
+## Current Status
 
-## 開發前置
+Implemented:
 
-1. 安裝完整 Xcode，並讓 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 可用。
-2. 執行 `scripts/bootstrap_macos.sh` 安裝 `cmake` 等 host tools。
-3. 執行 `scripts/doctor.sh` 檢查 Xcode、simulator runtime、Homebrew 與目錄狀態。
+- Three.js viewport with dark CAD grid.
+- Touch/mouse camera controls.
+- ViewCube standard orientation switching.
+- OCCT WebAssembly worker path.
+- Primitive body creation and tessellation.
+- Face, edge, and body picking.
+- Selection highlighting.
+- Items panel with visibility/delete controls.
+- Unit tests for camera, gestures, picking, and state.
 
-## 常用指令
+Next milestones:
+
+- Face-based sketching: lines, rectangles, circles, arcs, snapping, closed regions.
+- Drag extrusion with automatic boolean behavior.
+- Journal-based undo/redo.
+- OPFS autosave and document format.
+- STEP import/export.
+- Fillet, chamfer, shell, move/copy, offset face.
+- PWA polish for real iPad use.
+
+## Tech Stack
+
+- TypeScript
+- Vite
+- React
+- Three.js
+- OpenCascade via `opencascade.js`
+- Web Worker kernel boundary
+- Zustand state
+- Vitest and ESLint
+
+Architecture notes live in [docs/adr](docs/adr).
+
+## Run Locally
 
 ```bash
-swift test
-scripts/run_host_tests.sh
-scripts/run_ios_build_check.sh
-scripts/build_app.sh
+npm install
+npm run dev
 ```
 
-## 第一批驗收重點
+Useful checks:
 
-- STEP import 成功
-- STEP round-trip 基本成功
-- STL/OBJ/3MF import/export 基本成功
-- viewer 可載入 shape
-- 可選取 body
-- 可 isolate
-- 可調 transparency
-- 可插入 reference image 並調整 opacity / transform
+```bash
+npm run test
+npm run lint
+npm run typecheck
+npm run build
+```
 
-詳細規格見 [docs/acceptance_tests.md](/Users/hysus/Documents/dev/3D_editor/HephCAD/docs/acceptance_tests.md)。
+For iPad testing, run the dev server with host access and open it from the same network:
+
+```bash
+npm run dev -- --host
+```
+
+## Contributing
+
+Help is especially useful in these areas:
+
+- Sketch plane math and constraint-light 2D editing.
+- OCCT B-rep operations from WebAssembly.
+- Robust topology id mapping across operations.
+- Touch/Pencil UX design for CAD workflows.
+- Three.js rendering and picking performance.
+- iPad PWA testing.
+- Documentation, examples, and small reproducible acceptance tests.
+
+Please keep changes small and verifiable. If a design choice is architectural or dependency-heavy, add an ADR first.
+
+## Project Direction
+
+HephCAD is intentionally scoped:
+
+- B-rep first.
+- Meshes are for import, view, or conversion, not mesh editing.
+- No full history tree in the first version.
+- No cloud, auth, or collaboration in the first version.
+- Reference images matter for MVP workflows.
+- Helix, spring, and thread features should be parametric generators, not freeform sculpting tools.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
