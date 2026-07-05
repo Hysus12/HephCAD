@@ -32,11 +32,13 @@ Implemented:
 - Face, edge, and body picking.
 - Selection highlighting.
 - Items panel with visibility/delete controls.
-- Unit tests for camera, gestures, picking, and state.
+- Sketch mode on planar faces or the ground plane: line, rectangle, circle, and two-stroke arc tools.
+- Snapping (endpoint, midpoint, center, horizontal/vertical alignment, grid) with visual snap markers.
+- Closed-region detection via OCCT planar graph analysis, with translucent region fill (regions are kept in the kernel for extrusion).
+- Unit tests for camera, gestures, picking, sketch math, snapping, tools, and state.
 
 Next milestones:
 
-- Face-based sketching: lines, rectangles, circles, arcs, snapping, closed regions.
 - Drag extrusion with automatic boolean behavior.
 - Journal-based undo/redo.
 - OPFS autosave and document format.

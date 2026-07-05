@@ -1,7 +1,9 @@
+import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import type {
   BodyMeshResult,
   KernelRequest,
   KernelResponse,
+  SketchRegionsResult,
   Translation,
 } from './protocol.ts'
 
@@ -56,6 +58,28 @@ export class KernelClient {
 
   deleteBody(bodyId: number): Promise<void> {
     return this.request({ op: 'deleteBody', bodyId }) as Promise<void>
+  }
+
+  /** 平面 face 的草圖座標系；非平面 face 回傳 null。 */
+  facePlane(bodyId: number, faceId: number): Promise<SketchPlane | null> {
+    return this.request({ op: 'facePlane', bodyId, faceId }) as Promise<SketchPlane | null>
+  }
+
+  sketchRegions(
+    sketchId: number,
+    plane: SketchPlane,
+    curves: SketchCurve[],
+  ): Promise<SketchRegionsResult> {
+    return this.request({
+      op: 'sketchRegions',
+      sketchId,
+      plane,
+      curves,
+    }) as Promise<SketchRegionsResult>
+  }
+
+  clearSketch(sketchId: number): Promise<void> {
+    return this.request({ op: 'clearSketch', sketchId }) as Promise<void>
   }
 
   dispose(): void {

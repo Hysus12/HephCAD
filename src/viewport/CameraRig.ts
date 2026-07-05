@@ -73,6 +73,21 @@ export class CameraRig {
     this.phi = clamp(phi, MIN_PHI, MAX_PHI)
   }
 
+  /** 動畫轉到正對指定方向（如草圖平面法線）。 */
+  snapToDirection(dir: [number, number, number]): void {
+    const [x, y, z] = dir
+    const horizontal = Math.hypot(x, y)
+    // 法線接近垂直時方位角不穩定，保留目前方位角
+    const theta = horizontal < 1e-6 ? this.curTheta : Math.atan2(y, x)
+    const phi = Math.acos(Math.min(1, Math.max(-1, z)))
+    this.theta = nearestEquivalentAngle(theta, this.curTheta)
+    this.phi = clamp(phi, MIN_PHI, MAX_PHI)
+  }
+
+  currentRadius(): number {
+    return this.curRadius
+  }
+
   /** 推進 snap 動畫。回傳是否仍在移動（需要重繪）。 */
   update(dtSeconds: number): boolean {
     const k = 1 - Math.exp(-DAMPING * dtSeconds)

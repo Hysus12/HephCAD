@@ -138,6 +138,34 @@ body {
   opacity: 0.5;
 }
 
+/* ---- 草圖工具列 ---- */
+
+.toolbar-button:disabled {
+  color: var(--text-dim);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sketch-done {
+  color: #6fd08c;
+}
+
+.sketch-cancel {
+  color: #f08a8a;
+}
+
+.sketch-region-hint {
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--accent);
+  text-align: center;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
 /* ---- 項目面板 ---- */
 
 .items-panel {

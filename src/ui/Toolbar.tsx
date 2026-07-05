@@ -3,7 +3,9 @@
 
 import { useState, type ReactElement } from 'react'
 import { createBox, createCylinder } from '../app/createPrimitives.ts'
+import { enterSketchMode } from '../app/sketchActions.ts'
 import { useAppStore } from '../state/appStore.ts'
+import { SketchToolbar } from './SketchToolbar.tsx'
 
 const stroke = {
   fill: 'none',
@@ -66,6 +68,9 @@ const ICONS: Record<string, ReactElement> = {
 export function Toolbar() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const kernelReady = useAppStore((s) => s.kernelStatus === 'ready')
+  const sketchActive = useAppStore((s) => s.sketchActive)
+
+  if (sketchActive) return <SketchToolbar />
 
   const runAndCollapse = (action: () => Promise<void>) => {
     void action()
@@ -80,7 +85,13 @@ export function Toolbar() {
         </button>
       </div>
       <div className="toolbar-group">
-        <button className="toolbar-button" title="草圖" aria-label="草圖">
+        <button
+          className="toolbar-button"
+          title="草圖"
+          aria-label="草圖"
+          disabled={!kernelReady}
+          onClick={() => void enterSketchMode()}
+        >
           {ICONS.sketch}
         </button>
         <div className="toolbar-flyout-anchor">

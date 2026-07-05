@@ -6,20 +6,26 @@ import {
   HemisphereLight,
   Line,
   LineBasicMaterial,
+  MeshStandardMaterial,
   PerspectiveCamera,
+  Plane,
   Raycaster,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three'
+import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { MeshData } from '../kernel/protocol.ts'
+import { worldToUv, type SketchPlane, type Vec2 } from '../sketch/model.ts'
+import type { ToolKind } from '../sketch/tools.ts'
 import { useAppStore, type SelectionItem } from '../state/appStore.ts'
 import { buildBodyObject, disposeBodyObject, type BodyObject } from './bodyMesh.ts'
 import { CameraRig } from './CameraRig.ts'
 import { GestureController } from './gestures.ts'
 import { edgePickThreshold, findTopoGroup } from './picking.ts'
 import { SelectionHighlighter } from './SelectionHighlighter.ts'
+import { SketchSession } from './SketchSession.ts'
 import { ViewCube } from './ViewCube.ts'
 
 const BACKGROUND = 0x141416
@@ -52,6 +58,8 @@ export class Viewport {
   private readonly raycaster = new Raycaster()
   private readonly highlighter: SelectionHighlighter
   private readonly unsubscribeStore: () => void
+  private sketch: SketchSession | null = null
+  private sketchIntersectPlane = new Plane()
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -96,6 +104,10 @@ export class Viewport {
         this.invalidate()
       },
       tap: (x, y, _type, tapCount) => this.handleTap(x, y, tapCount),
+      drawStart: (x, y) => this.forwardStroke('start', x, y),
+      drawMove: (x, y) => this.forwardStroke('move', x, y),
+      drawEnd: (x, y) => this.forwardStroke('end', x, y),
+      drawCancel: () => this.sketch?.strokeCancel(),
     })
     this.gestures.attach(this.renderer.domElement)
 
@@ -124,6 +136,79 @@ export class Viewport {
     disposeBodyObject(body)
     this.bodies.delete(bodyId)
     this.invalidate()
+  }
+
+  /** 進入草圖模式：相機轉正對平面、單指改為繪圖、其餘實體變半透明。 */
+  enterSketch(plane: SketchPlane, kernel: KernelClient): void {
+    if (this.sketch) return
+    this.sketch = new SketchSession(plane, {
+      scene: this.scene,
+      kernel,
+      invalidate: () => this.invalidate(),
+      worldPerPixel: () => this.worldPerPixel(),
+    })
+    this.sketchIntersectPlane.setFromNormalAndCoplanarPoint(
+      new Vector3(...plane.normal),
+      new Vector3(...plane.origin),
+    )
+    this.rig.snapToDirection(plane.normal)
+    this.gestures.setMode('draw')
+    this.setBodiesDimmed(true)
+    this.invalidate()
+  }
+
+  async exitSketch(commit: boolean): Promise<void> {
+    if (!this.sketch) return
+    const session = this.sketch
+    this.sketch = null
+    this.gestures.setMode('navigate')
+    this.setBodiesDimmed(false)
+    await session.finish(commit)
+    this.invalidate()
+  }
+
+  setSketchTool(kind: ToolKind): void {
+    this.sketch?.setTool(kind)
+  }
+
+  private forwardStroke(phase: 'start' | 'move' | 'end', clientX: number, clientY: number): void {
+    if (!this.sketch) return
+    const uv = this.clientToSketchUv(clientX, clientY)
+    if (!uv) return
+    if (phase === 'start') this.sketch.strokeStart(uv)
+    else if (phase === 'move') this.sketch.strokeMove(uv)
+    else this.sketch.strokeEnd(uv)
+  }
+
+  private clientToSketchUv(clientX: number, clientY: number): Vec2 | null {
+    if (!this.sketch) return null
+    const rect = this.container.getBoundingClientRect()
+    const ndc = new Vector2(
+      ((clientX - rect.left) / this.width) * 2 - 1,
+      -(((clientY - rect.top) / this.height) * 2 - 1),
+    )
+    this.raycaster.setFromCamera(ndc, this.camera)
+    const hit = new Vector3()
+    if (!this.raycaster.ray.intersectPlane(this.sketchIntersectPlane, hit)) return null
+    return worldToUv(this.sketch.plane, [hit.x, hit.y, hit.z])
+  }
+
+  private worldPerPixel(): number {
+    return (
+      (2 * this.rig.currentRadius() * Math.tan(((FOV_DEG / 2) * Math.PI) / 180)) /
+      this.height
+    )
+  }
+
+  private setBodiesDimmed(dimmed: boolean): void {
+    for (const body of this.bodies.values()) {
+      const material = body.surface.material as MeshStandardMaterial
+      material.transparent = dimmed
+      material.opacity = dimmed ? 0.35 : 1
+      material.needsUpdate = true
+      ;(body.edges.material as LineBasicMaterial).transparent = dimmed
+      ;(body.edges.material as LineBasicMaterial).opacity = dimmed ? 0.4 : 1
+    }
   }
 
   dispose(): void {
@@ -156,6 +241,7 @@ export class Viewport {
     const rect = this.container.getBoundingClientRect()
     const x = clientX - rect.left
     const y = clientY - rect.top
+    if (this.sketch) return // 草圖模式：tap 由筆劃事件涵蓋，不做選取/視角切換
     const orientation = this.viewCube.pick(x, y, this.width)
     if (orientation) {
       this.rig.snapTo(orientation)
