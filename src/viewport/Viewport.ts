@@ -140,6 +140,18 @@ export class Viewport {
     this.needsRender = true
   }
 
+  /**
+   * 同步渲染並擷取畫面（文件截圖/除錯用）。
+   * WebGL drawing buffer 在合成後即失效，render 與 toDataURL 必須同步執行。
+   */
+  captureImage(): string {
+    this.rig.position(this.camera.position)
+    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
+    this.renderer.render(this.scene, this.camera)
+    this.viewCube.render(this.renderer, this.rig, this.width, this.height)
+    return this.renderer.domElement.toDataURL('image/png')
+  }
+
   addBody(bodyId: number, mesh: MeshData): void {
     const body = buildBodyObject(bodyId, mesh)
     this.bodies.set(bodyId, body)
