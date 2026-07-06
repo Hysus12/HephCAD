@@ -54,6 +54,10 @@ export interface AppState {
   setSketchActive: (active: boolean) => void
   setSketchTool: (tool: ToolKind) => void
   setSketchRegionCount: (count: number) => void
+
+  /** 完成草圖後場景中可拖曳擠出的區域數。 */
+  extrudableRegionCount: number
+  setExtrudableRegionCount: (count: number) => void
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -99,4 +103,7 @@ export const useAppStore = create<AppState>()((set) => ({
     set(active ? { sketchActive: true } : { sketchActive: false, sketchRegionCount: 0, sketchTool: 'line' }),
   setSketchTool: (tool) => set({ sketchTool: tool }),
   setSketchRegionCount: (count) => set({ sketchRegionCount: count }),
+
+  extrudableRegionCount: 0,
+  setExtrudableRegionCount: (count) => set({ extrudableRegionCount: count }),
 }))

@@ -1,6 +1,7 @@
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import type {
   BodyMeshResult,
+  ExtrudeResult,
   KernelRequest,
   KernelResponse,
   SketchRegionsResult,
@@ -80,6 +81,21 @@ export class KernelClient {
 
   clearSketch(sketchId: number): Promise<void> {
     return this.request({ op: 'clearSketch', sketchId }) as Promise<void>
+  }
+
+  extrude(
+    sketchId: number,
+    regionId: number,
+    height: number,
+    hostBodyId: number | null,
+  ): Promise<ExtrudeResult> {
+    return this.request({
+      op: 'extrude',
+      sketchId,
+      regionId,
+      height,
+      hostBodyId,
+    }) as Promise<ExtrudeResult>
   }
 
   dispose(): void {

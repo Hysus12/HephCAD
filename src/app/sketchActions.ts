@@ -13,14 +13,18 @@ export async function enterSketchMode(): Promise<void> {
   const store = useAppStore.getState()
 
   let plane = GROUND_PLANE
+  let hostBodyId: number | null = null
   const faceSel = store.selection.find((item) => item.kind === 'face')
   if (faceSel) {
     const facePlane = await kernel.facePlane(faceSel.bodyId, faceSel.topoId)
-    if (facePlane) plane = facePlane
+    if (facePlane) {
+      plane = facePlane
+      hostBodyId = faceSel.bodyId
+    }
   }
 
   store.clearSelection()
-  viewport.enterSketch(plane, kernel)
+  viewport.enterSketch(plane, kernel, hostBodyId)
   store.setSketchActive(true)
   store.setSketchTool('line')
 }

@@ -29,6 +29,14 @@ export interface GestureCallbacks {
   drawEnd?(xPx: number, yPx: number): void
   /** 筆劃被打斷（第二指加入變成導航手勢）。 */
   drawCancel?(): void
+  /**
+   * navigate 模式下單指按下時的攔截：回傳 true 表示這次拖曳
+   * 屬於物件操作（如擠出），不做視角旋轉。
+   */
+  beginGrab?(xPx: number, yPx: number): boolean
+  grabMove?(xPx: number, yPx: number): void
+  grabEnd?(xPx: number, yPx: number): void
+  grabCancel?(): void
 }
 
 const TAP_MAX_MOVEMENT_PX = 6
@@ -56,6 +64,8 @@ export class GestureController {
   private mode: GestureMode = 'navigate'
   /** draw 模式下進行中筆劃的 pointerId。 */
   private strokePointerId: number | null = null
+  /** navigate 模式下進行中 grab（擠出等）的 pointerId。 */
+  private grabPointerId: number | null = null
 
   constructor(
     private readonly callbacks: GestureCallbacks,
@@ -67,6 +77,10 @@ export class GestureController {
     if (this.strokePointerId !== null) {
       this.callbacks.drawCancel?.()
       this.strokePointerId = null
+    }
+    if (this.grabPointerId !== null) {
+      this.callbacks.grabCancel?.()
+      this.grabPointerId = null
     }
     this.mode = mode
     this.pointers.clear()
@@ -86,17 +100,24 @@ export class GestureController {
     })
     if (this.pointers.size >= 2) {
       this.multiTouchSession = true
-      // 第二指加入：中斷進行中的筆劃，切成導航手勢
+      // 第二指加入：中斷進行中的筆劃/grab，切成導航手勢
       if (this.strokePointerId !== null) {
         this.callbacks.drawCancel?.()
         this.strokePointerId = null
       }
+      if (this.grabPointerId !== null) {
+        this.callbacks.grabCancel?.()
+        this.grabPointerId = null
+      }
       this.resetPinchBaseline()
       return
     }
-    if (this.mode === 'draw' && !this.isPanButton(e)) {
+    if (this.isPanButton(e)) return
+    if (this.mode === 'draw') {
       this.strokePointerId = e.pointerId
       this.callbacks.drawStart?.(e.clientX, e.clientY)
+    } else if (this.callbacks.beginGrab?.(e.clientX, e.clientY)) {
+      this.grabPointerId = e.pointerId
     }
   }
 
@@ -112,6 +133,10 @@ export class GestureController {
       if (dx === 0 && dy === 0) return
       if (this.strokePointerId === e.pointerId) {
         this.callbacks.drawMove?.(e.clientX, e.clientY)
+        return
+      }
+      if (this.grabPointerId === e.pointerId) {
+        this.callbacks.grabMove?.(e.clientX, e.clientY)
         return
       }
       if (p.panButton) {
@@ -155,6 +180,12 @@ export class GestureController {
       if (this.pointers.size === 0) this.multiTouchSession = false
       return
     }
+    if (this.grabPointerId === e.pointerId) {
+      this.grabPointerId = null
+      this.callbacks.grabEnd?.(e.clientX, e.clientY)
+      if (this.pointers.size === 0) this.multiTouchSession = false
+      return
+    }
 
     if (this.pointers.size >= 1) {
       // 剩餘手指繼續操作：重設基準避免跳動。
@@ -187,6 +218,10 @@ export class GestureController {
     if (this.strokePointerId === e.pointerId) {
       this.strokePointerId = null
       this.callbacks.drawCancel?.()
+    }
+    if (this.grabPointerId === e.pointerId) {
+      this.grabPointerId = null
+      this.callbacks.grabCancel?.()
     }
     if (this.pointers.size >= 2) this.resetPinchBaseline()
     if (this.pointers.size === 0) this.multiTouchSession = false

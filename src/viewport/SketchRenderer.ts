@@ -107,6 +107,17 @@ export class SketchRenderer {
     }
   }
 
+  /** 依 setRegions 的順序回傳區域 fill mesh（index = regionId - 1）。 */
+  regionMeshes(): Mesh[] {
+    return this.regionGroup.children.filter((c): c is Mesh => c instanceof Mesh)
+  }
+
+  removeRegionMesh(mesh: Mesh): void {
+    mesh.geometry.dispose()
+    ;(mesh.material as MeshBasicMaterial).dispose()
+    mesh.removeFromParent()
+  }
+
   setRegions(meshes: MeshData[]): void {
     for (const child of [...this.regionGroup.children]) {
       const mesh = child as Mesh

@@ -42,6 +42,15 @@ export interface SketchRegionsResult {
   debug?: string
 }
 
+/**
+ * 擠出結果：布林進宿主 body（updatedBody，bodyId 不變）
+ * 或建立獨立新 body（newBody）。
+ */
+export interface ExtrudeResult {
+  kind: 'newBody' | 'updatedBody'
+  body: BodyMeshResult
+}
+
 export type KernelRequest =
   | { id: number; op: 'ping' }
   | { id: number; op: 'makeBox'; dx: number; dy: number; dz: number; at?: Translation }
@@ -56,6 +65,16 @@ export type KernelRequest =
       curves: SketchCurve[]
     }
   | { id: number; op: 'clearSketch'; sketchId: number }
+  | {
+      id: number
+      op: 'extrude'
+      sketchId: number
+      regionId: number
+      /** 沿草圖平面法線的高度（可為負）。 */
+      height: number
+      /** 草圖畫在某 body 的面上時：>0 fuse、<0 cut。 */
+      hostBodyId: number | null
+    }
 
 export type KernelOp = KernelRequest['op']
 
