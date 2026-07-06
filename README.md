@@ -1,108 +1,88 @@
 # HephCAD
 
-![HephCAD viewport showing a cube on a dark CAD grid with touch-first controls](docs/assets/viewport-cube.png)
+![A plate with a circular hole cut straight through it, modeled in HephCAD's dark touch-first viewport](docs/assets/cut-plate.webp)
 
-HephCAD is an open-source, iPad-first B-rep CAD experiment.
+**Open-source, iPad-first CAD. Sketch on a face, pull to add material, push to cut. That's it — that's the app.**
 
-The goal is a touch and Apple Pencil friendly direct modeling app: sketch on a face, drag to extrude, and let the kernel handle clean B-rep operations. Think of the core workflow people expect from modern tablet CAD, but built in the open and kept small enough that contributors can actually move it forward.
+HephCAD is an attempt to build the tablet CAD experience people love — direct modeling with your fingers and an Apple Pencil — as an open-source web app. Real B-rep solids powered by OpenCascade compiled to WebAssembly, running entirely in your browser. No install, no account, no cloud.
 
-This repo restarted on 2026-07-03. The current codebase is a Web/WASM implementation using TypeScript, React, Three.js, and OpenCascade compiled to WebAssembly.
+The signature interaction already works today:
 
-## Why This Exists
+1. Tap the sketch tool and draw a rectangle on the ground grid.
+2. Tap ✓ — the closed region glows blue.
+3. Drag it upward. A solid plate grows under your finger.
+4. Tap the plate's top face, sketch a circle on it, tap ✓.
+5. Push the circle down — it cuts a clean hole straight through.
 
-Most CAD projects are either closed, desktop-first, or too large to approach casually. HephCAD is trying a narrower path:
+![A blue closed sketch region on top of a solid plate, ready to be dragged into an extrusion](docs/assets/extrude-region.webp)
 
-- iPad and touch-first interaction.
-- B-rep modeling first, not mesh sculpting.
-- Web/PWA delivery before native app complexity.
-- Small milestones with visible, testable progress.
-- Architecture decisions documented before big dependencies or rewrites.
+Five gestures, zero dialogs, and you're holding a real boundary-representation solid that will export to STEP one milestone from now. The hole in the plate at the top of this page was made exactly this way.
 
-This is not production CAD yet. It is a working foundation looking for people who want to help make open tablet CAD real.
+## Why this exists
 
-## Current Status
+Serious CAD is either closed-source, desktop-bound, or too intimidating to touch. Tablet CAD proved that direct modeling can feel effortless — but nobody has built that experience in the open. HephCAD is trying, with a deliberately narrow path:
 
-Implemented:
+- **iPad and touch first.** One finger draws and pulls, two fingers navigate. Every target is finger-sized.
+- **Real B-rep, not mesh sculpting.** OpenCascade (OCCT) as the geometry kernel, compiled to WASM and isolated in a Web Worker — the UI never blocks, and a kernel crash can't take down the app.
+- **Web/PWA delivery.** Open a URL on your iPad and start modeling. Native shell only if it ever earns its keep.
+- **Small, verifiable milestones.** Every feature lands with acceptance criteria and tests. Architecture decisions get an ADR before big dependencies get added.
 
-- Three.js viewport with dark CAD grid.
-- Touch/mouse camera controls.
-- ViewCube standard orientation switching.
-- OCCT WebAssembly worker path.
-- Primitive body creation and tessellation.
-- Face, edge, and body picking.
-- Selection highlighting.
-- Items panel with visibility/delete controls.
-- Unit tests for camera, gestures, picking, and state.
+## What works today (M0–M4)
 
-Next milestones:
+- **Viewport**: Z-up turntable camera tuned for touch (one-finger orbit, two-finger pan, pinch zoom, inertia-damped view snapping), ViewCube, adaptive dark CAD grid.
+- **Kernel channel**: OCCT WASM in a Web Worker with a typed message protocol; tessellation moves via zero-copy transferables; every face/edge carries a topology index for picking.
+- **Selection**: tap for faces/edges (with screen-space tolerance so thin edges are actually tappable), double-tap for bodies, accumulating multi-select, items panel with visibility and delete.
+- **Sketching**: draw on the ground plane or any planar face. Line, rectangle, circle, and a two-stroke arc designed for touch (pull the chord, then pull the bulge). Snapping to endpoints, midpoints, centers, horizontal/vertical alignment, and the grid.
+- **Closed regions**: detected live via OCCT planar-graph analysis and filled translucent blue — including regions formed by overlapping curves.
+- **Drag extrusion with automatic booleans**: pull a region to fuse, push into the host body to cut. The drag preview is a pure-JS ghost prism, so it never waits on the kernel; the real boolean commits on release.
+- 59 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, and extrusion.
 
-- Face-based sketching: lines, rectangles, circles, arcs, snapping, closed regions.
-- Drag extrusion with automatic boolean behavior.
-- Journal-based undo/redo.
-- OPFS autosave and document format.
-- STEP import/export.
-- Fillet, chamfer, shell, move/copy, offset face.
-- PWA polish for real iPad use.
+## Future work
 
-## Tech Stack
+Near-term milestones (roughly in order):
 
-- TypeScript
-- Vite
-- React
-- Three.js
-- OpenCascade via `opencascade.js`
-- Web Worker kernel boundary
-- Zustand state
-- Vitest and ESLint
+- **M5 — Documents & history**: linear operation journal with unlimited undo/redo, history panel, OPFS autosave, STEP import/export.
+- **M6 — Modify tools**: move/rotate/copy with a touch gizmo, drag-to-fillet/chamfer on edges, shell, offset face — with graceful, undoable failure when OCCT says no.
+- **M7 — Polish**: measurement, section views, appearance/materials, installable PWA with offline support, adaptive tessellation for large models, i18n (English + 繁體中文), sketch-axis screen alignment.
+- **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
 
-Architecture notes live in [docs/adr](docs/adr).
+Beyond the milestones, the fun stuff:
 
-## Run Locally
+- Sketch dimensions and lightweight constraints (Shapr3D-style, not a full constraint solver).
+- Revolve, sweep, and loft; parametric helix/thread generators.
+- Numeric input during any drag (type "25" while extruding).
+- Persistent topological naming across boolean operations — the famous hard problem; our journal-based scope makes a pragmatic solution feasible.
+- Apple Pencil pressure/hover affordances, reference images, WebGPU rendering.
+- A native shell (WKWebView) if PWA limits ever bite.
+
+## Tech stack
+
+TypeScript · Vite · React (panels only — the viewport is imperative Three.js) · Zustand · OpenCascade via `opencascade.js` in a Web Worker · Vitest + ESLint + GitHub Actions.
+
+Architecture decisions live in [docs/adr](docs/adr) — start with [0001 (why Web+WASM)](docs/adr/0001-web-wasm-stack.md) and [0004 (viewport/React boundary)](docs/adr/0004-viewport-react-boundary.md).
+
+## Run it locally
 
 ```bash
 npm install
-npm run dev
+npm run dev        # then open http://localhost:5173
 ```
 
-Useful checks:
+For iPad testing, the dev server binds to your LAN — open `http://<your-mac-ip>:5173` from the iPad. First load fetches the 14 MB WASM kernel; after that it's instant.
 
-```bash
-npm run test
-npm run lint
-npm run typecheck
-npm run build
-```
-
-For iPad testing, run the dev server with host access and open it from the same network:
-
-```bash
-npm run dev -- --host
-```
+Checks: `npm run test` · `npm run lint` · `npm run typecheck` · `npm run build`
 
 ## Contributing
 
-Help is especially useful in these areas:
+This project is small enough that one person can still hold the whole architecture in their head — which makes it a great time to jump in. Areas where help moves the needle most:
 
-- Sketch plane math and constraint-light 2D editing.
-- OCCT B-rep operations from WebAssembly.
-- Robust topology id mapping across operations.
-- Touch/Pencil UX design for CAD workflows.
-- Three.js rendering and picking performance.
-- iPad PWA testing.
-- Documentation, examples, and small reproducible acceptance tests.
+- **Touch/Pencil UX**: you have an iPad and opinions about how CAD should feel? Test the sketch→extrude flow and file issues about anything that feels off.
+- **OCCT from WASM**: booleans, fillets, STEP I/O, and the dark art of a trimmed Emscripten build.
+- **Sketch engine**: constraint-light 2D editing, better snapping, dimension input.
+- **Rendering**: picking performance, highlight styles, section views, WebGPU.
+- **Topology mapping**: stable face/edge identity across operations (see [ADR 0002](docs/adr/0002-topology-id-mapping.md)).
 
-Please keep changes small and verifiable. If a design choice is architectural or dependency-heavy, add an ADR first.
-
-## Project Direction
-
-HephCAD is intentionally scoped:
-
-- B-rep first.
-- Meshes are for import, view, or conversion, not mesh editing.
-- No full history tree in the first version.
-- No cloud, auth, or collaboration in the first version.
-- Reference images matter for MVP workflows.
-- Helix, spring, and thread features should be parametric generators, not freeform sculpting tools.
+Ground rules are short: keep changes small and verifiable, write acceptance criteria before features, and add an ADR before architectural or dependency-heavy choices. The codebase is strictly layered (pure math → kernel worker → viewport → React), and every pure layer has tests you can copy as a template.
 
 ## License
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { KernelStatus } from '../kernel/KernelClient.ts'
+import type { ToolKind } from '../sketch/tools.ts'
 
 export interface BodyEntry {
   bodyId: number
@@ -45,6 +46,18 @@ export interface AppState {
   toggleSelection: (item: SelectionItem) => void
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
+
+  /** 草圖模式。 */
+  sketchActive: boolean
+  sketchTool: ToolKind
+  sketchRegionCount: number
+  setSketchActive: (active: boolean) => void
+  setSketchTool: (tool: ToolKind) => void
+  setSketchRegionCount: (count: number) => void
+
+  /** 完成草圖後場景中可拖曳擠出的區域數。 */
+  extrudableRegionCount: number
+  setExtrudableRegionCount: (count: number) => void
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -82,4 +95,15 @@ export const useAppStore = create<AppState>()((set) => ({
     }),
   replaceSelection: (items) => set({ selection: items }),
   clearSelection: () => set({ selection: [] }),
+
+  sketchActive: false,
+  sketchTool: 'line',
+  sketchRegionCount: 0,
+  setSketchActive: (active) =>
+    set(active ? { sketchActive: true } : { sketchActive: false, sketchRegionCount: 0, sketchTool: 'line' }),
+  setSketchTool: (tool) => set({ sketchTool: tool }),
+  setSketchRegionCount: (count) => set({ sketchRegionCount: count }),
+
+  extrudableRegionCount: 0,
+  setExtrudableRegionCount: (count) => set({ extrudableRegionCount: count }),
 }))

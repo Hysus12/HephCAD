@@ -11,3 +11,8 @@ export const services: {
   viewport: null,
   kernel: null,
 }
+
+// dev 環境暴露給瀏覽器 console 除錯用
+if (import.meta.env.DEV) {
+  ;(globalThis as Record<string, unknown>).__heph = services
+}

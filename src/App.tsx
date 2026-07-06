@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { services } from './app/services.ts'
 import { KernelClient } from './kernel/KernelClient.ts'
 import { useAppStore } from './state/appStore.ts'
+import { ExtrudeHint } from './ui/ExtrudeHint.tsx'
 import { ItemsPanel } from './ui/ItemsPanel.tsx'
 import { KernelStatusPill } from './ui/KernelStatusPill.tsx'
 import { StatusChips } from './ui/StatusChips.tsx'
@@ -27,6 +28,7 @@ export function App() {
       <Toolbar />
       <StatusChips />
       <KernelStatusPill />
+      <ExtrudeHint />
     </div>
   )
 }
