@@ -123,6 +123,114 @@ function prismFromCurves(
   return prism
 }
 
+/** 用 old 產生修改後的新 shape（不刪除 old、不動 registry）。 */
+function buildModifiedShape(
+  oc: OpenCascadeInstance,
+  jop: Extract<JournalOp, { kind: 'transform' | 'fillet' | 'shell' }>,
+  old: TopoDS_Shape,
+): TopoDS_Shape {
+  switch (jop.kind) {
+    case 'transform': {
+      const vec = new oc.gp_Vec_4(...jop.translation)
+      const trsf = new oc.gp_Trsf_1()
+      trsf.SetTranslation_1(vec)
+      const transform = new oc.BRepBuilderAPI_Transform_2(old, trsf, false)
+      const moved = transform.Shape()
+      transform.delete()
+      trsf.delete()
+      vec.delete()
+      return moved
+    }
+    case 'fillet': {
+      if (jop.radius < 0.05) throw new Error('半徑過小')
+      const maker = jop.chamfer
+        ? new oc.BRepFilletAPI_MakeChamfer(old)
+        : new oc.BRepFilletAPI_MakeFillet(
+            old,
+            oc.ChFi3d_FilletShape.ChFi3d_Rational as never,
+          )
+      const edgeMap = new oc.TopTools_IndexedMapOfShape_1()
+      oc.TopExp.MapShapes_1(
+        old,
+        oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum,
+        edgeMap,
+      )
+      let added = 0
+      for (const edgeId of jop.edgeIds) {
+        if (edgeId < 1 || edgeId > edgeMap.Extent()) continue
+        const edge = oc.TopoDS.Edge_1(edgeMap.FindKey(edgeId))
+        maker.Add_2(jop.radius, edge)
+        edge.delete()
+        added++
+      }
+      edgeMap.delete()
+      if (added === 0) {
+        maker.delete()
+        throw new Error('沒有可用的邊')
+      }
+      const progress = new oc.Message_ProgressRange_1()
+      maker.Build(progress)
+      const done = maker.IsDone()
+      const shape = done ? maker.Shape() : null
+      progress.delete()
+      maker.delete()
+      if (!shape) throw new Error(jop.chamfer ? '倒角失敗' : '圓角失敗（半徑可能過大）')
+      return shape
+    }
+    case 'shell': {
+      if (jop.thickness < 0.05) throw new Error('壁厚過小')
+      const faceMap = new oc.TopTools_IndexedMapOfShape_1()
+      oc.TopExp.MapShapes_1(
+        old,
+        oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum,
+        faceMap,
+      )
+      const closing = new oc.TopTools_ListOfShape_1()
+      for (const faceId of jop.faceIds) {
+        if (faceId < 1 || faceId > faceMap.Extent()) continue
+        const face = oc.TopoDS.Face_1(faceMap.FindKey(faceId))
+        closing.Append_1(face)
+        face.delete()
+      }
+      faceMap.delete()
+      const maker = new oc.BRepOffsetAPI_MakeThickSolid()
+      const progress = new oc.Message_ProgressRange_1()
+      maker.MakeThickSolidByJoin(
+        old,
+        closing,
+        -jop.thickness,
+        1e-3,
+        oc.BRepOffset_Mode.BRepOffset_Skin as never,
+        false,
+        false,
+        oc.GeomAbs_JoinType.GeomAbs_Arc as never,
+        false,
+        progress,
+      )
+      const done = maker.IsDone()
+      const shape = done ? maker.Shape() : null
+      progress.delete()
+      maker.delete()
+      closing.delete()
+      if (!shape) throw new Error('抽殼失敗（壁厚可能過大）')
+      return shape
+    }
+  }
+}
+
+/** 以 make() 的結果取代 body 的 shape（處理好舊 shape 的釋放順序）。 */
+function replaceBodyShape(
+  bodyId: number,
+  make: (old: TopoDS_Shape) => TopoDS_Shape,
+): void {
+  const old = bodies.get(bodyId)
+  if (!old) throw new Error(`body ${bodyId} 不存在`)
+  const next = make(old)
+  bodies.delete(bodyId)
+  old.delete()
+  bodies.set(bodyId, next)
+}
+
 function booleanWithHost(
   oc: OpenCascadeInstance,
   host: TopoDS_Shape,
@@ -186,6 +294,26 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
         { ...jop, newBodyId: bodyId, name: jop.name ?? `主體 ${bodyId}` },
         [bodyId],
       )
+    }
+    case 'transform': {
+      replaceBodyShape(jop.bodyId, (old) => buildModifiedShape(oc, jop, old))
+      return result(jop, [jop.bodyId])
+    }
+    case 'fillet':
+    case 'shell': {
+      replaceBodyShape(jop.bodyId, (old) => buildModifiedShape(oc, jop, old))
+      return result(jop, [jop.bodyId])
+    }
+    case 'copyBody': {
+      const source = bodies.get(jop.sourceBodyId)
+      if (!source) throw new Error(`body ${jop.sourceBodyId} 不存在`)
+      const copier = new oc.BRepBuilderAPI_Copy_2(source, true, false)
+      const copy = copier.Shape()
+      copier.delete()
+      const moved = translated(oc, copy, jop.translation)
+      const bodyId = claimBodyId(jop.bodyId)
+      setBody(bodyId, moved)
+      return result({ ...jop, bodyId }, [bodyId])
     }
     case 'importStep': {
       const oc2 = oc as unknown as {
@@ -270,6 +398,19 @@ async function handle(
         result: applied,
         transfer: applied.updated.flatMap((b) => meshTransferables(b.mesh)),
       }
+    }
+    case 'previewOp': {
+      const jop = req.jop
+      if (jop.kind !== 'transform' && jop.kind !== 'fillet' && jop.kind !== 'shell') {
+        throw new Error(`${jop.kind} 不支援預覽`)
+      }
+      const old = bodies.get(jop.bodyId)
+      if (!old) throw new Error(`body ${jop.bodyId} 不存在`)
+      // OCCT 操作不會改動輸入 shape：直接建結果、取 mesh、丟棄
+      const preview = buildModifiedShape(oc, jop, old)
+      const body: BodyMeshResult = { bodyId: jop.bodyId, mesh: tessellate(oc, preview) }
+      preview.delete()
+      return { result: body, transfer: meshTransferables(body.mesh) }
     }
     case 'replayJournal': {
       resetAllBodies()

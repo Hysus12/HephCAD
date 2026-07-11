@@ -40,6 +40,23 @@ export type JournalOp =
       name: string | null
     }
   | { kind: 'importStep'; bodyId: number; name: string; data: string }
+  | { kind: 'transform'; bodyId: number; translation: Translation }
+  | {
+      kind: 'copyBody'
+      sourceBodyId: number
+      bodyId: number
+      name: string
+      translation: Translation
+    }
+  | {
+      kind: 'fillet'
+      bodyId: number
+      /** 該 body 當下的 edge 拓撲索引（journal 位置決定其有效性）。 */
+      edgeIds: number[]
+      radius: number
+      chamfer: boolean
+    }
+  | { kind: 'shell'; bodyId: number; faceIds: number[]; thickness: number }
 
 export interface JournalEntry {
   label: string
@@ -68,6 +85,16 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
         : `擠出切除 ${Math.abs(op.height).toFixed(1)}mm`
     case 'importStep':
       return `匯入 "${op.name}"`
+    case 'transform':
+      return `移動 ${nameOf(op.bodyId)}`
+    case 'copyBody':
+      return `複製 ${nameOf(op.sourceBodyId)}`
+    case 'fillet':
+      return op.chamfer
+        ? `倒角 ${op.radius.toFixed(1)}mm`
+        : `圓角 ${op.radius.toFixed(1)}mm`
+    case 'shell':
+      return `抽殼 ${op.thickness.toFixed(1)}mm`
   }
 }
 
@@ -88,6 +115,13 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
         if (op.hostBodyId === null && op.newBodyId !== null) {
           names.set(op.newBodyId, op.name ?? `主體 ${op.newBodyId}`)
         }
+        break
+      case 'copyBody':
+        names.set(op.bodyId, op.name)
+        break
+      case 'transform':
+      case 'fillet':
+      case 'shell':
         break
     }
   }

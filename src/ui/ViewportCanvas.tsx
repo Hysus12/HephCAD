@@ -9,7 +9,8 @@ export function ViewportCanvas() {
     const container = containerRef.current
     if (!container) return
     const viewport = new Viewport(container)
-    viewport.extrudeCommitHandler = (draft) => documentController.apply(draft)
+    viewport.opCommitHandler = (draft) => documentController.apply(draft)
+    viewport.kernelProvider = () => services.kernel
     services.viewport = viewport
     return () => {
       if (services.viewport === viewport) services.viewport = null

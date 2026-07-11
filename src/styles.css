@@ -166,6 +166,51 @@ body {
   -webkit-backdrop-filter: blur(12px);
 }
 
+/* ---- 情境動作列 ---- */
+
+.context-bar {
+  position: absolute;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.context-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.context-button:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.context-button-active {
+  background: rgba(74, 141, 240, 0.28);
+  color: #9cc3ff;
+}
+
+.context-hint {
+  padding: 0 12px 0 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 .extrude-hint {
   position: absolute;
   bottom: max(16px, env(safe-area-inset-bottom));

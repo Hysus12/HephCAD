@@ -2,6 +2,7 @@ import type { JournalOp } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import type {
   ApplyOpResult,
+  BodyMeshResult,
   KernelRequest,
   KernelResponse,
   ReplayResult,
@@ -52,6 +53,11 @@ export class KernelClient {
   /** 套用單一 journal op（現場操作與 redo 共用）。 */
   applyOp(jop: JournalOp): Promise<ApplyOpResult> {
     return this.request({ op: 'applyOp', jop }) as Promise<ApplyOpResult>
+  }
+
+  /** 只算結果 mesh、不改狀態（拖曳中的圓角/抽殼預覽）。 */
+  previewOp(jop: JournalOp): Promise<BodyMeshResult> {
+    return this.request({ op: 'previewOp', jop }) as Promise<BodyMeshResult>
   }
 
   /** 重置 kernel 狀態並重放整份 journal（undo / 開檔）。 */

@@ -1,4 +1,6 @@
 import {
+  ArrowHelper,
+  Box3,
   BufferGeometry,
   Color,
   DirectionalLight,
@@ -25,7 +27,7 @@ import { buildBodyObject, disposeBodyObject, type BodyObject } from './bodyMesh.
 import { CameraRig } from './CameraRig.ts'
 import { GestureController } from './gestures.ts'
 import { ExtrudePreview } from './ExtrudePreview.ts'
-import { dragHeight, type Px } from './extrudeMath.ts'
+import { distanceToSegment, dragHeight, type Px } from './extrudeMath.ts'
 import { edgePickThreshold, findTopoGroup } from './picking.ts'
 import { SelectionHighlighter } from './SelectionHighlighter.ts'
 import { SketchSession, type CommittedSketch } from './SketchSession.ts'
@@ -52,8 +54,10 @@ export class Viewport {
   readonly scene = new Scene()
   readonly camera: PerspectiveCamera
   readonly rig = new CameraRig()
-  /** 擠出放手時呼叫（由 app 層接上 DocumentController）。 */
-  extrudeCommitHandler: ((draft: JournalOp) => Promise<unknown>) | null = null
+  /** 幾何變更放手時呼叫（由 app 層接上 DocumentController）。 */
+  opCommitHandler: ((draft: JournalOp) => Promise<unknown>) | null = null
+  /** kernel 存取（app 層在建構後掛上，供預覽用）。 */
+  kernelProvider: (() => KernelClient | null) | null = null
 
   private readonly renderer: WebGLRenderer
   private readonly gestures: GestureController
@@ -76,6 +80,29 @@ export class Viewport {
     preview: ExtrudePreview
     height: number
   } | null = null
+  /** 移動模式的拖曳狀態。 */
+  private moveDrag: {
+    bodyId: number
+    axis: 'xy' | 'z'
+    startHit: Vector3
+    startPx: Px
+    zAxisPx: Px
+    translation: [number, number, number]
+  } | null = null
+  /** 圓角/倒角/抽殼的參數拖曳（kernel 節流預覽）。 */
+  private paramDrag: {
+    mode: 'fillet' | 'chamfer' | 'shell'
+    bodyId: number
+    ids: number[]
+    startPx: Px
+    value: number
+    inFlight: boolean
+    pendingValue: number | null
+    ghost: BodyObject | null
+    active: boolean
+  } | null = null
+  private moveHandle: ArrowHelper | null = null
+  private moveHandleLen = 0
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -97,12 +124,19 @@ export class Viewport {
 
     this.highlighter = new SelectionHighlighter(this.scene)
     this.unsubscribeStore = useAppStore.subscribe((state, prev) => {
-      if (state.selection === prev.selection && state.bodies === prev.bodies) return
+      if (
+        state.selection === prev.selection &&
+        state.bodies === prev.bodies &&
+        state.toolMode === prev.toolMode
+      ) {
+        return
+      }
       for (const entry of state.bodies) {
         const body = this.bodies.get(entry.bodyId)
         if (body) body.group.visible = entry.visible
       }
       this.highlighter.apply(state.selection, this.bodies)
+      this.syncMoveHandle()
       this.invalidate()
     })
 
@@ -124,10 +158,10 @@ export class Viewport {
       drawMove: (x, y) => this.forwardStroke('move', x, y),
       drawEnd: (x, y) => this.forwardStroke('end', x, y),
       drawCancel: () => this.sketch?.strokeCancel(),
-      beginGrab: (x, y) => this.tryBeginExtrude(x, y),
-      grabMove: (x, y) => this.updateExtrude(x, y),
-      grabEnd: () => void this.commitExtrude(),
-      grabCancel: () => this.cancelExtrude(),
+      beginGrab: (x, y) => this.handleGrabStart(x, y),
+      grabMove: (x, y) => this.handleGrabMove(x, y),
+      grabEnd: () => this.handleGrabEnd(),
+      grabCancel: () => this.handleGrabCancel(),
     })
     this.gestures.attach(this.renderer.domElement)
 
@@ -257,6 +291,290 @@ export class Viewport {
     )
   }
 
+  // ---- grab 路由：依情境工具模式分派 ----
+
+  private handleGrabStart(clientX: number, clientY: number): boolean {
+    if (this.sketch) return false
+    const mode = useAppStore.getState().toolMode
+    if (mode === 'move') return this.beginMoveDrag(clientX, clientY)
+    if (mode === 'fillet' || mode === 'chamfer' || mode === 'shell') {
+      return this.beginParamDrag(mode, clientX, clientY)
+    }
+    return this.tryBeginExtrude(clientX, clientY)
+  }
+
+  private handleGrabMove(clientX: number, clientY: number): void {
+    if (this.moveDrag) this.updateMoveDrag(clientX, clientY)
+    else if (this.paramDrag) this.updateParamDrag(clientX, clientY)
+    else this.updateExtrude(clientX, clientY)
+  }
+
+  private handleGrabEnd(): void {
+    if (this.moveDrag) void this.commitMoveDrag()
+    else if (this.paramDrag) void this.commitParamDrag()
+    else void this.commitExtrude()
+  }
+
+  private handleGrabCancel(): void {
+    if (this.moveDrag) {
+      this.bodies.get(this.moveDrag.bodyId)?.group.position.set(0, 0, 0)
+      this.moveDrag = null
+      this.invalidate()
+    } else if (this.paramDrag) {
+      this.cleanupParamDrag()
+    } else {
+      this.cancelExtrude()
+    }
+  }
+
+  // ---- 移動模式 ----
+
+  private beginMoveDrag(clientX: number, clientY: number): boolean {
+    const store = useAppStore.getState()
+    const bodySel = store.selection.find((i) => i.kind === 'body')
+    if (!bodySel || !this.bodies.has(bodySel.bodyId)) return false
+    const rect = this.container.getBoundingClientRect()
+    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
+
+    // Z 把手命中：沿 Z 拖曳；否則沿地面 XY
+    let axis: 'xy' | 'z' = 'xy'
+    let zAxisPx: Px = { x: 0, y: 0 }
+    if (this.moveHandle) {
+      const base = this.worldToLocalPx(this.moveHandle.position)
+      const tipWorld = this.moveHandle.position
+        .clone()
+        .addScaledVector(new Vector3(0, 0, 1), this.moveHandleLen)
+      const tip = this.worldToLocalPx(tipWorld)
+      if (distanceToSegment(local, base, tip) < 28) {
+        axis = 'z'
+        const unit = this.worldToLocalPx(
+          this.moveHandle.position.clone().add(new Vector3(0, 0, 1)),
+        )
+        zAxisPx = { x: unit.x - base.x, y: unit.y - base.y }
+      }
+    }
+
+    const startHit = new Vector3()
+    if (axis === 'xy') {
+      const ndc = new Vector2(
+        (local.x / this.width) * 2 - 1,
+        -((local.y / this.height) * 2 - 1),
+      )
+      this.raycaster.setFromCamera(ndc, this.camera)
+      const ground = new Plane(new Vector3(0, 0, 1), 0)
+      if (!this.raycaster.ray.intersectPlane(ground, startHit)) return false
+    }
+
+    this.moveDrag = {
+      bodyId: bodySel.bodyId,
+      axis,
+      startHit,
+      startPx: local,
+      zAxisPx,
+      translation: [0, 0, 0],
+    }
+    return true
+  }
+
+  private updateMoveDrag(clientX: number, clientY: number): void {
+    const drag = this.moveDrag
+    if (!drag) return
+    const rect = this.container.getBoundingClientRect()
+    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
+
+    if (drag.axis === 'z') {
+      const dz = dragHeight(drag.startPx, local, drag.zAxisPx)
+      drag.translation = [0, 0, dz]
+    } else {
+      const ndc = new Vector2(
+        (local.x / this.width) * 2 - 1,
+        -((local.y / this.height) * 2 - 1),
+      )
+      this.raycaster.setFromCamera(ndc, this.camera)
+      const ground = new Plane(new Vector3(0, 0, 1), 0)
+      const hit = new Vector3()
+      if (!this.raycaster.ray.intersectPlane(ground, hit)) return
+      drag.translation = [hit.x - drag.startHit.x, hit.y - drag.startHit.y, 0]
+    }
+    this.bodies.get(drag.bodyId)?.group.position.set(...drag.translation)
+    this.invalidate()
+  }
+
+  private async commitMoveDrag(): Promise<void> {
+    const drag = this.moveDrag
+    if (!drag) return
+    this.moveDrag = null
+    const body = this.bodies.get(drag.bodyId)
+    body?.group.position.set(0, 0, 0)
+    this.invalidate()
+    const [dx, dy, dz] = drag.translation
+    if (Math.hypot(dx, dy, dz) < 0.5 || !this.opCommitHandler) return
+    try {
+      await this.opCommitHandler({
+        kind: 'transform',
+        bodyId: drag.bodyId,
+        translation: drag.translation,
+      })
+    } catch (e) {
+      console.warn('[move] 移動失敗：', e)
+    }
+  }
+
+  // ---- 圓角/倒角/抽殼的參數拖曳（kernel 節流預覽） ----
+
+  private beginParamDrag(
+    mode: 'fillet' | 'chamfer' | 'shell',
+    clientX: number,
+    clientY: number,
+  ): boolean {
+    const store = useAppStore.getState()
+    const wanted = mode === 'shell' ? 'face' : 'edge'
+    const items = store.selection.filter((i) => i.kind === wanted)
+    if (items.length === 0) return false
+    const bodyId = items[0].bodyId
+    if (!this.bodies.has(bodyId)) return false
+    const rect = this.container.getBoundingClientRect()
+    this.paramDrag = {
+      mode,
+      bodyId,
+      ids: items.map((i) => i.topoId),
+      startPx: { x: clientX - rect.left, y: clientY - rect.top },
+      value: 0,
+      inFlight: false,
+      pendingValue: null,
+      ghost: null,
+      active: true,
+    }
+    return true
+  }
+
+  private updateParamDrag(clientX: number, clientY: number): void {
+    const drag = this.paramDrag
+    if (!drag) return
+    const rect = this.container.getBoundingClientRect()
+    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
+    const px = Math.hypot(local.x - drag.startPx.x, local.y - drag.startPx.y)
+    drag.value = Math.max(0.1, px * this.worldPerPixel())
+    this.requestParamPreview(drag.value)
+  }
+
+  private requestParamPreview(value: number): void {
+    const drag = this.paramDrag
+    const kernel = this.kernelProvider?.() ?? this.kernel
+    if (!drag || !kernel) return
+    if (drag.inFlight) {
+      drag.pendingValue = value
+      return
+    }
+    drag.inFlight = true
+    kernel
+      .previewOp(this.paramOp(drag, value))
+      .then((body) => {
+        if (!drag.active) return
+        // 換上幽靈體、隱藏本尊
+        const real = this.bodies.get(drag.bodyId)
+        if (real) real.group.visible = false
+        if (drag.ghost) disposeBodyObject(drag.ghost)
+        drag.ghost = buildBodyObject(drag.bodyId, body.mesh)
+        this.scene.add(drag.ghost.group)
+        this.invalidate()
+      })
+      .catch(() => {
+        // 半徑/壁厚超出可行範圍：保留上一個成功的預覽
+      })
+      .finally(() => {
+        drag.inFlight = false
+        if (drag.pendingValue !== null && drag.active) {
+          const next = drag.pendingValue
+          drag.pendingValue = null
+          this.requestParamPreview(next)
+        }
+      })
+  }
+
+  private async commitParamDrag(): Promise<void> {
+    const drag = this.paramDrag
+    if (!drag) return
+    const value = drag.value
+    this.cleanupParamDrag()
+    if (value < 0.1 || !this.opCommitHandler) return
+    try {
+      await this.opCommitHandler(this.paramOp(drag, value))
+    } catch (e) {
+      console.warn(`[${drag.mode}] 操作失敗：`, e)
+    }
+  }
+
+  private cleanupParamDrag(): void {
+    const drag = this.paramDrag
+    if (!drag) return
+    drag.active = false
+    if (drag.ghost) disposeBodyObject(drag.ghost)
+    const body = this.bodies.get(drag.bodyId)
+    if (body) {
+      const entry = useAppStore.getState().bodies.find((b) => b.bodyId === drag.bodyId)
+      body.group.visible = entry?.visible ?? true
+    }
+    this.paramDrag = null
+    this.invalidate()
+  }
+
+  private paramOp(
+    drag: { mode: 'fillet' | 'chamfer' | 'shell'; bodyId: number; ids: number[] },
+    value: number,
+  ): JournalOp {
+    if (drag.mode === 'shell') {
+      return { kind: 'shell', bodyId: drag.bodyId, faceIds: drag.ids, thickness: value }
+    }
+    return {
+      kind: 'fillet',
+      bodyId: drag.bodyId,
+      edgeIds: drag.ids,
+      radius: value,
+      chamfer: drag.mode === 'chamfer',
+    }
+  }
+
+  /** 移動模式時在選取 body 上方顯示 Z 軸把手。 */
+  private syncMoveHandle(): void {
+    const store = useAppStore.getState()
+    const bodySel = store.selection.find((i) => i.kind === 'body')
+    const body = bodySel && this.bodies.get(bodySel.bodyId)
+    const show = store.toolMode === 'move' && !!body
+
+    if (!show) {
+      if (this.moveHandle) {
+        this.moveHandle.removeFromParent()
+        this.moveHandle.dispose()
+        this.moveHandle = null
+      }
+      return
+    }
+
+    const bbox = new Box3().setFromObject(body!.group)
+    const top = new Vector3(
+      (bbox.min.x + bbox.max.x) / 2,
+      (bbox.min.y + bbox.max.y) / 2,
+      bbox.max.z + 5,
+    )
+    const length = Math.max(40, (bbox.max.z - bbox.min.z) * 0.5)
+    this.moveHandleLen = length
+    if (!this.moveHandle) {
+      this.moveHandle = new ArrowHelper(
+        new Vector3(0, 0, 1),
+        top,
+        length,
+        0x4a8df0,
+        length * 0.3,
+        length * 0.18,
+      )
+      this.scene.add(this.moveHandle)
+    } else {
+      this.moveHandle.position.copy(top)
+      this.moveHandle.setLength(length, length * 0.3, length * 0.18)
+    }
+  }
+
   // ---- 拖曳擠出 ----
 
   private tryBeginExtrude(clientX: number, clientY: number): boolean {
@@ -313,11 +631,11 @@ export class Viewport {
     this.extrudeDrag = null
     drag.preview.dispose()
     this.invalidate()
-    if (Math.abs(drag.height) < 0.5 || !this.extrudeCommitHandler) return
+    if (Math.abs(drag.height) < 0.5 || !this.opCommitHandler) return
 
     try {
       // body 的建立/更新由 DocumentController 統一處理（journal + store + 場景）
-      await this.extrudeCommitHandler({
+      await this.opCommitHandler({
         kind: 'extrude',
         plane: drag.sketch.plane,
         curves: drag.sketch.curves,

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { documentController, services } from './app/services.ts'
 import { KernelClient } from './kernel/KernelClient.ts'
 import { useAppStore } from './state/appStore.ts'
+import { ContextBar } from './ui/ContextBar.tsx'
 import { ExtrudeHint } from './ui/ExtrudeHint.tsx'
 import { HistoryPanel } from './ui/HistoryPanel.tsx'
 import { ItemsPanel } from './ui/ItemsPanel.tsx'
@@ -45,6 +46,7 @@ export function App() {
       <StatusChips />
       <KernelStatusPill />
       <ExtrudeHint />
+      <ContextBar />
     </div>
   )
 }

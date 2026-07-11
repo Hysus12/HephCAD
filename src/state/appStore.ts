@@ -47,6 +47,10 @@ export interface AppState {
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
 
+  /** 情境工具模式（依選取出現：移動/圓角/倒角/抽殼）。選取變更即重置。 */
+  toolMode: 'move' | 'fillet' | 'chamfer' | 'shell' | null
+  setToolMode: (mode: AppState['toolMode']) => void
+
   /** 草圖模式。 */
   sketchActive: boolean
   sketchTool: ToolKind
@@ -96,10 +100,14 @@ export const useAppStore = create<AppState>()((set) => ({
         selection: exists
           ? s.selection.filter((i) => selectionKey(i) !== key)
           : [...s.selection, item],
+        toolMode: null,
       }
     }),
-  replaceSelection: (items) => set({ selection: items }),
-  clearSelection: () => set({ selection: [] }),
+  replaceSelection: (items) => set({ selection: items, toolMode: null }),
+  clearSelection: () => set({ selection: [], toolMode: null }),
+
+  toolMode: null,
+  setToolMode: (mode) => set({ toolMode: mode }),
 
   sketchActive: false,
   sketchTool: 'line',

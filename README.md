@@ -27,7 +27,7 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Web/PWA delivery.** Open a URL on your iPad and start modeling. Native shell only if it ever earns its keep.
 - **Small, verifiable milestones.** Every feature lands with acceptance criteria and tests. Architecture decisions get an ADR before big dependencies get added.
 
-## What works today (M0–M5)
+## What works today (M0–M6)
 
 - **Viewport**: Z-up turntable camera tuned for touch (one-finger orbit, two-finger pan, pinch zoom, inertia-damped view snapping), ViewCube, adaptive dark CAD grid.
 - **Kernel channel**: OCCT WASM in a Web Worker with a typed message protocol; tessellation moves via zero-copy transferables; every face/edge carries a topology index for picking.
@@ -38,13 +38,16 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Documents & history**: every geometry change goes through a linear operation journal — unlimited undo/redo (⌘Z / ⇧⌘Z or the history panel), with each op self-contained enough to replay the whole model deterministically.
 - **Autosave**: the journal persists to OPFS (localStorage fallback) and your model is rebuilt exactly where you left it on next launch.
 - **STEP import/export**: bring real CAD files in, send real CAD files out.
-- 64 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, and the document journal.
+- **Modify tools**: select a body and a context bar appears — move it (ground-plane drag + a Z handle) or copy it. Select edges and drag to fillet or chamfer with a live kernel preview; select a face and drag to shell the body open. Kernel failures (radius too big, wall too thick) degrade gracefully and never corrupt the journal.
+
+  ![A shelled hollow box next to a copy with filleted edges, both made with drag gestures](docs/assets/modify-tools.png)
+- 69 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, and the document journal.
 
 ## Future work
 
 Near-term milestones (roughly in order):
 
-- **M6 — Modify tools**: move/rotate/copy with a touch gizmo, drag-to-fillet/chamfer on edges, shell, offset face — with graceful, undoable failure when OCCT says no.
+- **M6.5 — Modify tools, part 2**: rotation, offset face, multi-body move, keeping selection alive across modifications.
 - **M7 — Polish**: measurement, section views, appearance/materials, installable PWA with offline support, adaptive tessellation for large models, i18n (English + 繁體中文), sketch-axis screen alignment.
 - **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
 

@@ -63,6 +63,12 @@ export interface ReplayResult {
 export type KernelRequest =
   | { id: number; op: 'ping' }
   | { id: number; op: 'applyOp'; jop: JournalOp }
+  | {
+      id: number
+      /** 只計算結果 mesh、不改 kernel 狀態（拖曳中的圓角/抽殼預覽）。 */
+      op: 'previewOp'
+      jop: JournalOp
+    }
   | { id: number; op: 'replayJournal'; ops: JournalOp[] }
   | { id: number; op: 'exportStep'; bodyIds: number[] }
   | { id: number; op: 'facePlane'; bodyId: number; faceId: number }
