@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { services } from '../app/services.ts'
+import { documentController, services } from '../app/services.ts'
 import { Viewport } from '../viewport/Viewport.ts'
 
 export function ViewportCanvas() {
@@ -9,6 +9,7 @@ export function ViewportCanvas() {
     const container = containerRef.current
     if (!container) return
     const viewport = new Viewport(container)
+    viewport.extrudeCommitHandler = (draft) => documentController.apply(draft)
     services.viewport = viewport
     return () => {
       if (services.viewport === viewport) services.viewport = null

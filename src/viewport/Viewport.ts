@@ -15,8 +15,9 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three'
+import type { JournalOp } from '../doc/journal.ts'
 import type { KernelClient } from '../kernel/KernelClient.ts'
-import type { MeshData } from '../kernel/protocol.ts'
+import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
 import { worldToUv, type SketchPlane, type Vec2 } from '../sketch/model.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 import { useAppStore, type SelectionItem } from '../state/appStore.ts'
@@ -51,6 +52,8 @@ export class Viewport {
   readonly scene = new Scene()
   readonly camera: PerspectiveCamera
   readonly rig = new CameraRig()
+  /** 擠出放手時呼叫（由 app 層接上 DocumentController）。 */
+  extrudeCommitHandler: ((draft: JournalOp) => Promise<unknown>) | null = null
 
   private readonly renderer: WebGLRenderer
   private readonly gestures: GestureController
@@ -164,6 +167,24 @@ export class Viewport {
     if (!body) return
     disposeBodyObject(body)
     this.bodies.delete(bodyId)
+    this.invalidate()
+  }
+
+  replaceBodyMesh(bodyId: number, mesh: MeshData): void {
+    const wasVisible = this.bodies.get(bodyId)?.group.visible ?? true
+    this.removeBody(bodyId)
+    this.addBody(bodyId, mesh)
+    this.bodies.get(bodyId)!.group.visible = wasVisible
+  }
+
+  /** 重放/開檔後整批重建場景（清掉既有 body 與可擠出區域）。 */
+  setAllBodies(list: BodyMeshResult[]): void {
+    for (const bodyId of [...this.bodies.keys()]) this.removeBody(bodyId)
+    for (const sketch of this.committedSketches) {
+      for (const region of sketch.regions) sketch.consumeRegion(region.regionId)
+    }
+    this.committedSketches.length = 0
+    for (const body of list) this.addBody(body.bodyId, body.mesh)
     this.invalidate()
   }
 
@@ -292,15 +313,20 @@ export class Viewport {
     this.extrudeDrag = null
     drag.preview.dispose()
     this.invalidate()
-    if (Math.abs(drag.height) < 0.5 || !this.kernel) return
+    if (Math.abs(drag.height) < 0.5 || !this.extrudeCommitHandler) return
 
     try {
-      const result = await this.kernel.extrude(
-        drag.sketch.sketchId,
-        drag.regionId,
-        drag.height,
-        drag.sketch.hostBodyId,
-      )
+      // body 的建立/更新由 DocumentController 統一處理（journal + store + 場景）
+      await this.extrudeCommitHandler({
+        kind: 'extrude',
+        plane: drag.sketch.plane,
+        curves: drag.sketch.curves,
+        regionIndex: drag.regionId - 1,
+        height: drag.height,
+        hostBodyId: drag.sketch.hostBodyId,
+        newBodyId: null,
+        name: null,
+      })
 
       drag.sketch.consumeRegion(drag.regionId)
       drag.sketch.regions = drag.sketch.regions.filter(
@@ -311,22 +337,6 @@ export class Viewport {
         if (i >= 0) this.committedSketches.splice(i, 1)
       }
       this.syncExtrudableCount()
-
-      const store = useAppStore.getState()
-      if (result.kind === 'updatedBody') {
-        this.replaceBodyMesh(result.body.bodyId, result.body.mesh)
-        // 布林後拓撲 ID 重排，舊的 face/edge 選取不再有效
-        store.replaceSelection(
-          store.selection.filter((s) => s.bodyId !== result.body.bodyId),
-        )
-      } else {
-        this.addBody(result.body.bodyId, result.body.mesh)
-        store.addBody({
-          bodyId: result.body.bodyId,
-          name: `主體 ${result.body.bodyId}`,
-          visible: true,
-        })
-      }
     } catch (e) {
       console.warn('[extrude] 擠出失敗：', e)
     }
@@ -338,13 +348,6 @@ export class Viewport {
     this.extrudeDrag.preview.dispose()
     this.extrudeDrag = null
     this.invalidate()
-  }
-
-  private replaceBodyMesh(bodyId: number, mesh: MeshData): void {
-    const wasVisible = this.bodies.get(bodyId)?.group.visible ?? true
-    this.removeBody(bodyId)
-    this.addBody(bodyId, mesh)
-    this.bodies.get(bodyId)!.group.visible = wasVisible
   }
 
   private worldToLocalPx(world: Vector3): Px {

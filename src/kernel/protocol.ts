@@ -1,6 +1,8 @@
 // Kernel worker 與主執行緒之間的訊息協議。
 // 幾何陣列一律用 TypedArray，postMessage 時以 Transferable 零拷貝搬移。
+// 幾何變更一律走 JournalOp（applyOp / replayJournal），現場與重放同一條路。
 
+import type { JournalOp } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 
 /** 一個 face / edge 在扁平陣列中的區段（給 M2 picking 反查用）。 */
@@ -42,20 +44,27 @@ export interface SketchRegionsResult {
   debug?: string
 }
 
-/**
- * 擠出結果：布林進宿主 body（updatedBody，bodyId 不變）
- * 或建立獨立新 body（newBody）。
- */
-export interface ExtrudeResult {
-  kind: 'newBody' | 'updatedBody'
-  body: BodyMeshResult
+
+/** 套用單一 journal op 的效果。 */
+export interface ApplyOpResult {
+  /** id 已填妥的 op（首次執行時 kernel 指派 bodyId）。 */
+  op: JournalOp
+  /** 新增或內容更新的 body。 */
+  updated: BodyMeshResult[]
+  /** 被移除的 bodyId。 */
+  removed: number[]
+}
+
+export interface ReplayResult {
+  /** 重放後所有存活的 body。 */
+  bodies: BodyMeshResult[]
 }
 
 export type KernelRequest =
   | { id: number; op: 'ping' }
-  | { id: number; op: 'makeBox'; dx: number; dy: number; dz: number; at?: Translation }
-  | { id: number; op: 'makeCylinder'; radius: number; height: number; at?: Translation }
-  | { id: number; op: 'deleteBody'; bodyId: number }
+  | { id: number; op: 'applyOp'; jop: JournalOp }
+  | { id: number; op: 'replayJournal'; ops: JournalOp[] }
+  | { id: number; op: 'exportStep'; bodyIds: number[] }
   | { id: number; op: 'facePlane'; bodyId: number; faceId: number }
   | {
       id: number
@@ -65,16 +74,6 @@ export type KernelRequest =
       curves: SketchCurve[]
     }
   | { id: number; op: 'clearSketch'; sketchId: number }
-  | {
-      id: number
-      op: 'extrude'
-      sketchId: number
-      regionId: number
-      /** 沿草圖平面法線的高度（可為負）。 */
-      height: number
-      /** 草圖畫在某 body 的面上時：>0 fuse、<0 cut。 */
-      hostBodyId: number | null
-    }
 
 export type KernelOp = KernelRequest['op']
 

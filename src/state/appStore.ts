@@ -58,6 +58,11 @@ export interface AppState {
   /** 完成草圖後場景中可拖曳擠出的區域數。 */
   extrudableRegionCount: number
   setExtrudableRegionCount: (count: number) => void
+
+  /** 歷程面板：journal 標籤與游標（cursor 之後的是可 redo 的灰色項）。 */
+  journalLabels: string[]
+  journalCursor: number
+  setJournal: (labels: string[], cursor: number) => void
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -106,4 +111,8 @@ export const useAppStore = create<AppState>()((set) => ({
 
   extrudableRegionCount: 0,
   setExtrudableRegionCount: (count) => set({ extrudableRegionCount: count }),
+
+  journalLabels: [],
+  journalCursor: 0,
+  setJournal: (labels, cursor) => set({ journalLabels: labels, journalCursor: cursor }),
 }))

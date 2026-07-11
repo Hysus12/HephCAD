@@ -32,6 +32,8 @@ export interface CommittedSketch {
   sketchId: number
   plane: SketchPlane
   hostBodyId: number | null
+  /** journal extrude op 需要的完整曲線（重放時自包含）。 */
+  curves: SketchCurve[]
   regions: CommittedRegion[]
   /** 擠出消耗一個區域後呼叫。 */
   consumeRegion: (regionId: number) => void
@@ -115,6 +117,7 @@ export class SketchSession {
       sketchId: this.sketchId,
       plane: this.plane,
       hostBodyId: this.hostBodyId,
+      curves: [...this.curves],
       regions,
       consumeRegion: (regionId) => {
         const region = regions.find((r) => r.regionId === regionId)

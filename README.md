@@ -27,7 +27,7 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Web/PWA delivery.** Open a URL on your iPad and start modeling. Native shell only if it ever earns its keep.
 - **Small, verifiable milestones.** Every feature lands with acceptance criteria and tests. Architecture decisions get an ADR before big dependencies get added.
 
-## What works today (M0–M4)
+## What works today (M0–M5)
 
 - **Viewport**: Z-up turntable camera tuned for touch (one-finger orbit, two-finger pan, pinch zoom, inertia-damped view snapping), ViewCube, adaptive dark CAD grid.
 - **Kernel channel**: OCCT WASM in a Web Worker with a typed message protocol; tessellation moves via zero-copy transferables; every face/edge carries a topology index for picking.
@@ -35,13 +35,15 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Sketching**: draw on the ground plane or any planar face. Line, rectangle, circle, and a two-stroke arc designed for touch (pull the chord, then pull the bulge). Snapping to endpoints, midpoints, centers, horizontal/vertical alignment, and the grid.
 - **Closed regions**: detected live via OCCT planar-graph analysis and filled translucent blue — including regions formed by overlapping curves.
 - **Drag extrusion with automatic booleans**: pull a region to fuse, push into the host body to cut. The drag preview is a pure-JS ghost prism, so it never waits on the kernel; the real boolean commits on release.
-- 59 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, and extrusion.
+- **Documents & history**: every geometry change goes through a linear operation journal — unlimited undo/redo (⌘Z / ⇧⌘Z or the history panel), with each op self-contained enough to replay the whole model deterministically.
+- **Autosave**: the journal persists to OPFS (localStorage fallback) and your model is rebuilt exactly where you left it on next launch.
+- **STEP import/export**: bring real CAD files in, send real CAD files out.
+- 64 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, and the document journal.
 
 ## Future work
 
 Near-term milestones (roughly in order):
 
-- **M5 — Documents & history**: linear operation journal with unlimited undo/redo, history panel, OPFS autosave, STEP import/export.
 - **M6 — Modify tools**: move/rotate/copy with a touch gizmo, drag-to-fillet/chamfer on edges, shell, offset face — with graceful, undoable failure when OCCT says no.
 - **M7 — Polish**: measurement, section views, appearance/materials, installable PWA with offline support, adaptive tessellation for large models, i18n (English + 繁體中文), sketch-axis screen alignment.
 - **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).

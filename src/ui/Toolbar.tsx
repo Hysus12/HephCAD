@@ -1,7 +1,8 @@
 // 左緣直立工具列，依 Shapr3D 的分群：搜尋 / 草圖 / 新增 / 變形 / 工具。
 // M1：「新增」子選單可建立 primitive（之後由草圖→擠出取代）；其餘仍是佔位。
 
-import { useState, type ReactElement } from 'react'
+import { useRef, useState, type ReactElement } from 'react'
+import { importStepFile } from '../app/bodyActions.ts'
 import { createBox, createCylinder } from '../app/createPrimitives.ts'
 import { enterSketchMode } from '../app/sketchActions.ts'
 import { useAppStore } from '../state/appStore.ts'
@@ -63,12 +64,19 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M5 18 a7 3 0 0 0 14 0" />
     </svg>
   ),
+  importFile: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19" />
+      <path d="M12 11 V17 M9.5 14.5 L12 17 L14.5 14.5" />
+    </svg>
+  ),
 }
 
 export function Toolbar() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const kernelReady = useAppStore((s) => s.kernelStatus === 'ready')
   const sketchActive = useAppStore((s) => s.sketchActive)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (sketchActive) return <SketchToolbar />
 
@@ -122,8 +130,30 @@ export function Toolbar() {
                 {ICONS.cylinder}
                 <span>圓柱</span>
               </button>
+              <button
+                className="flyout-item"
+                disabled={!kernelReady}
+                onClick={() => {
+                  fileInputRef.current?.click()
+                  setExpanded(null)
+                }}
+              >
+                {ICONS.importFile}
+                <span>匯入 STEP…</span>
+              </button>
             </div>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".step,.stp"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) void importStepFile(file)
+              e.target.value = ''
+            }}
+          />
         </div>
         <button className="toolbar-button" title="變形" aria-label="變形">
           {ICONS.transform}

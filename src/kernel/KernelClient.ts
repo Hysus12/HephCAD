@@ -1,11 +1,11 @@
+import type { JournalOp } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import type {
-  BodyMeshResult,
-  ExtrudeResult,
+  ApplyOpResult,
   KernelRequest,
   KernelResponse,
+  ReplayResult,
   SketchRegionsResult,
-  Translation,
 } from './protocol.ts'
 
 export type KernelStatus = 'loading' | 'ready' | 'error'
@@ -49,16 +49,18 @@ export class KernelClient {
       .catch((e: Error) => onStatus('error', e.message))
   }
 
-  makeBox(dx: number, dy: number, dz: number, at?: Translation): Promise<BodyMeshResult> {
-    return this.request({ op: 'makeBox', dx, dy, dz, at }) as Promise<BodyMeshResult>
+  /** 套用單一 journal op（現場操作與 redo 共用）。 */
+  applyOp(jop: JournalOp): Promise<ApplyOpResult> {
+    return this.request({ op: 'applyOp', jop }) as Promise<ApplyOpResult>
   }
 
-  makeCylinder(radius: number, height: number, at?: Translation): Promise<BodyMeshResult> {
-    return this.request({ op: 'makeCylinder', radius, height, at }) as Promise<BodyMeshResult>
+  /** 重置 kernel 狀態並重放整份 journal（undo / 開檔）。 */
+  replayJournal(ops: JournalOp[]): Promise<ReplayResult> {
+    return this.request({ op: 'replayJournal', ops }) as Promise<ReplayResult>
   }
 
-  deleteBody(bodyId: number): Promise<void> {
-    return this.request({ op: 'deleteBody', bodyId }) as Promise<void>
+  exportStep(bodyIds: number[]): Promise<string> {
+    return this.request({ op: 'exportStep', bodyIds }) as Promise<string>
   }
 
   /** 平面 face 的草圖座標系；非平面 face 回傳 null。 */
@@ -81,21 +83,6 @@ export class KernelClient {
 
   clearSketch(sketchId: number): Promise<void> {
     return this.request({ op: 'clearSketch', sketchId }) as Promise<void>
-  }
-
-  extrude(
-    sketchId: number,
-    regionId: number,
-    height: number,
-    hostBodyId: number | null,
-  ): Promise<ExtrudeResult> {
-    return this.request({
-      op: 'extrude',
-      sketchId,
-      regionId,
-      height,
-      hostBodyId,
-    }) as Promise<ExtrudeResult>
   }
 
   dispose(): void {

@@ -1,4 +1,4 @@
-import { deleteBody, toggleBodyVisibility } from '../app/bodyActions.ts'
+import { deleteBody, exportStep, toggleBodyVisibility } from '../app/bodyActions.ts'
 import { useAppStore } from '../state/appStore.ts'
 
 /** 左上角項目面板：body 清單、選取、顯示/隱藏、刪除。 */
@@ -11,7 +11,27 @@ export function ItemsPanel() {
 
   return (
     <div className="items-panel">
-      <div className="items-panel-title">項目</div>
+      <div className="items-panel-header">
+        <span className="items-panel-title">項目</span>
+        <button
+          className="items-icon"
+          title="匯出 STEP"
+          aria-label="匯出 STEP"
+          onClick={() => void exportStep()}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19" />
+            <path d="M12 17 V11 M9.5 13.5 L12 11 L14.5 13.5" />
+          </svg>
+        </button>
+      </div>
       {bodies.map((body) => {
         const selected = selection.some(
           (item) => item.bodyId === body.bodyId && item.kind === 'body',
