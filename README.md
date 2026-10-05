@@ -1,6 +1,6 @@
 # HephCAD
 
-![A plate with a circular hole cut straight through it, modeled in HephCAD's dark touch-first viewport](docs/assets/cut-plate.webp)
+![A blue closed sketch region on top of a solid plate, ready to be dragged into an extrusion](docs/assets/extrude-region.webp)
 
 **Open-source, iPad-first CAD. Sketch on a face, pull to add material, push to cut. That's it — that's the app.**
 
@@ -14,7 +14,7 @@ The signature interaction already works today:
 4. Tap the plate's top face, sketch a circle on it, tap ✓.
 5. Push the circle down — it cuts a clean hole straight through.
 
-![A blue closed sketch region on top of a solid plate, ready to be dragged into an extrusion](docs/assets/extrude-region.webp)
+![A plate with a circular hole cut straight through it, modeled in HephCAD's dark touch-first viewport](docs/assets/cut-plate.webp)
 
 Five gestures, zero dialogs, and you're holding a real boundary-representation solid that will export to STEP one milestone from now. The hole in the plate at the top of this page was made exactly this way.
 
