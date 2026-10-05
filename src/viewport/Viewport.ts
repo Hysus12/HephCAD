@@ -23,7 +23,12 @@ import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
 import { worldToUv, type SketchPlane, type Vec2 } from '../sketch/model.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 import { useAppStore, type SelectionItem } from '../state/appStore.ts'
-import { buildBodyObject, disposeBodyObject, type BodyObject } from './bodyMesh.ts'
+import {
+  buildBodyObject,
+  disposeBodyObject,
+  sharedClippingPlanes,
+  type BodyObject,
+} from './bodyMesh.ts'
 import { CameraRig } from './CameraRig.ts'
 import { GestureController } from './gestures.ts'
 import { ExtrudePreview } from './ExtrudePreview.ts'
@@ -111,6 +116,7 @@ export class Viewport {
 
   constructor(private readonly container: HTMLElement) {
     this.renderer = new WebGLRenderer({ antialias: true })
+    this.renderer.localClippingEnabled = true
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setClearColor(new Color(BACKGROUND))
     this.renderer.domElement.style.touchAction = 'none'
@@ -124,6 +130,20 @@ export class Viewport {
 
     this.highlighter = new SelectionHighlighter(this.scene)
     this.unsubscribeStore = useAppStore.subscribe((state, prev) => {
+      if (state.sectionActive !== prev.sectionActive) {
+        sharedClippingPlanes.length = 0
+        if (state.sectionActive) {
+          // 前向剖切：切在所有 body 的 bbox 中心，保留前半
+          let centerY = 0
+          if (this.bodies.size > 0) {
+            const bbox = new Box3()
+            for (const body of this.bodies.values()) bbox.expandByObject(body.group)
+            centerY = (bbox.min.y + bbox.max.y) / 2
+          }
+          sharedClippingPlanes.push(new Plane(new Vector3(0, -1, 0), centerY))
+        }
+        this.invalidate()
+      }
       if (
         state.selection === prev.selection &&
         state.bodies === prev.bodies &&
@@ -236,7 +256,7 @@ export class Viewport {
       new Vector3(...plane.normal),
       new Vector3(...plane.origin),
     )
-    this.rig.snapToDirection(plane.normal)
+    this.rig.snapToDirection(plane.normal, plane.yDir)
     this.gestures.setMode('draw')
     this.setBodiesDimmed(true)
     this.invalidate()

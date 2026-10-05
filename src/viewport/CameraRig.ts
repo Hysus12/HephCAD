@@ -73,12 +73,25 @@ export class CameraRig {
     this.phi = clamp(phi, MIN_PHI, MAX_PHI)
   }
 
-  /** 動畫轉到正對指定方向（如草圖平面法線）。 */
-  snapToDirection(dir: [number, number, number]): void {
+  /**
+   * 動畫轉到正對指定方向（如草圖平面法線）。
+   * upHint（平面的 +v 軸）用於正對水平面時對齊螢幕方位：
+   * 近極點時螢幕的「上」≈ -(cosθ, sinθ)，令其等於 upHint 求 θ。
+   */
+  snapToDirection(
+    dir: [number, number, number],
+    upHint?: [number, number, number],
+  ): void {
     const [x, y, z] = dir
     const horizontal = Math.hypot(x, y)
-    // 法線接近垂直時方位角不穩定，保留目前方位角
-    const theta = horizontal < 1e-6 ? this.curTheta : Math.atan2(y, x)
+    let theta: number
+    if (horizontal > 1e-6) {
+      theta = Math.atan2(y, x)
+    } else if (upHint && Math.hypot(upHint[0], upHint[1]) > 1e-6) {
+      theta = Math.atan2(-upHint[1], -upHint[0])
+    } else {
+      theta = this.curTheta // 沒有提示就保留目前方位角
+    }
     const phi = Math.acos(Math.min(1, Math.max(-1, z)))
     this.theta = nearestEquivalentAngle(theta, this.curTheta)
     this.phi = clamp(phi, MIN_PHI, MAX_PHI)

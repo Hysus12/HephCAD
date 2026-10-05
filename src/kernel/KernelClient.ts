@@ -5,6 +5,7 @@ import type {
   BodyMeshResult,
   KernelRequest,
   KernelResponse,
+  MeasureResult,
   ReplayResult,
   SketchRegionsResult,
 } from './protocol.ts'
@@ -89,6 +90,12 @@ export class KernelClient {
 
   clearSketch(sketchId: number): Promise<void> {
     return this.request({ op: 'clearSketch', sketchId }) as Promise<void>
+  }
+
+  measure(
+    items: { bodyId: number; kind: 'body' | 'face' | 'edge'; topoId: number }[],
+  ): Promise<MeasureResult> {
+    return this.request({ op: 'measure', items }) as Promise<MeasureResult>
   }
 
   dispose(): void {

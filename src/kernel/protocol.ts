@@ -80,6 +80,21 @@ export type KernelRequest =
       curves: SketchCurve[]
     }
   | { id: number; op: 'clearSketch'; sketchId: number }
+  | {
+      id: number
+      op: 'measure'
+      items: { bodyId: number; kind: 'body' | 'face' | 'edge'; topoId: number }[]
+    }
+
+/** 量測結果（依選取內容，只填相關欄位）。 */
+export interface MeasureResult {
+  /** 選取 edge 的總長（mm）。 */
+  length?: number
+  /** 選取 face 的總面積（mm²）。 */
+  area?: number
+  /** 選取 body 的總體積（mm³）。 */
+  volume?: number
+}
 
 export type KernelOp = KernelRequest['op']
 

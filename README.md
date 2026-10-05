@@ -27,7 +27,7 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Web/PWA delivery.** Open a URL on your iPad and start modeling. Native shell only if it ever earns its keep.
 - **Small, verifiable milestones.** Every feature lands with acceptance criteria and tests. Architecture decisions get an ADR before big dependencies get added.
 
-## What works today (M0–M6)
+## What works today (M0–M7)
 
 - **Viewport**: Z-up turntable camera tuned for touch (one-finger orbit, two-finger pan, pinch zoom, inertia-damped view snapping), ViewCube, adaptive dark CAD grid.
 - **Kernel channel**: OCCT WASM in a Web Worker with a typed message protocol; tessellation moves via zero-copy transferables; every face/edge carries a topology index for picking.
@@ -41,6 +41,9 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Modify tools**: select a body and a context bar appears — move it (ground-plane drag + a Z handle) or copy it. Select edges and drag to fillet or chamfer with a live kernel preview; select a face and drag to shell the body open. Kernel failures (radius too big, wall too thick) degrade gracefully and never corrupt the journal.
 
   ![A shelled hollow box next to a copy with filleted edges, both made with drag gestures](docs/assets/modify-tools.png)
+- **Measurement built into selection**: pick an edge and see its length, a face its area, a body its volume — no separate measure tool.
+- **Section view**: one tap slices the model at its center so you can see inside (no cap faces yet).
+- **Installable PWA**: the service worker precaches the whole app including the 50 MB kernel — second launch on iPad is instant and fully offline.
 - 69 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, and the document journal.
 
 ## Future work
@@ -48,7 +51,7 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 Near-term milestones (roughly in order):
 
 - **M6.5 — Modify tools, part 2**: rotation, offset face, multi-body move, keeping selection alive across modifications.
-- **M7 — Polish**: measurement, section views, appearance/materials, installable PWA with offline support, adaptive tessellation for large models, i18n (English + 繁體中文), sketch-axis screen alignment.
+- **M7.5 — Polish, part 2**: draggable section plane with cap faces, appearance/materials, adaptive tessellation for large models, i18n (English + 繁體中文), numeric input during drags.
 - **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
 
 Beyond the milestones, the fun stuff:

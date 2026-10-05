@@ -6,12 +6,19 @@ import {
   LineSegments,
   Mesh,
   MeshStandardMaterial,
+  type Plane,
 } from 'three'
 import type { MeshData, TopoGroup } from '../kernel/protocol.ts'
 
 // Shapr3D 風格的中性灰實體 + 深色輪廓線。
 const BODY_COLOR = 0x9a9aa0
 const EDGE_COLOR = 0x2a2a2e
+
+/**
+ * 所有 body 材質共用的剖切面陣列（同一個 array 實例，
+ * Viewport 靠增刪內容切換剖面，材質不需重建）。
+ */
+export const sharedClippingPlanes: Plane[] = []
 
 export interface BodyObject {
   bodyId: number
@@ -35,6 +42,9 @@ export function buildBodyObject(bodyId: number, mesh: MeshData): BodyObject {
       color: BODY_COLOR,
       metalness: 0.1,
       roughness: 0.75,
+      clippingPlanes: sharedClippingPlanes,
+      clipShadows: true,
+      side: 2, // DoubleSide：剖切後看得到內壁
     }),
   )
 
@@ -42,7 +52,11 @@ export function buildBodyObject(bodyId: number, mesh: MeshData): BodyObject {
   edgeGeometry.setAttribute('position', new BufferAttribute(mesh.edgePositions, 3))
   const edges = new LineSegments(
     edgeGeometry,
-    new LineBasicMaterial({ color: EDGE_COLOR, toneMapped: false }),
+    new LineBasicMaterial({
+      color: EDGE_COLOR,
+      toneMapped: false,
+      clippingPlanes: sharedClippingPlanes,
+    }),
   )
 
   const group = new Group()

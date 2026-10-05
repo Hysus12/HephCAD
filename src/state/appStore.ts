@@ -31,6 +31,10 @@ export interface AppState {
   snapEnabled: boolean
   toggleSnap: () => void
 
+  /** 剖面視圖（v1：固定 Y=0 前向剖切、無蓋）。 */
+  sectionActive: boolean
+  toggleSection: () => void
+
   kernelStatus: KernelStatus
   kernelError: string | null
   setKernelStatus: (status: KernelStatus, detail?: string) => void
@@ -73,6 +77,9 @@ export const useAppStore = create<AppState>()((set) => ({
   gridSpacingMm: 5,
   snapEnabled: true,
   toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
+
+  sectionActive: false,
+  toggleSection: () => set((s) => ({ sectionActive: !s.sectionActive })),
 
   kernelStatus: 'loading',
   kernelError: null,

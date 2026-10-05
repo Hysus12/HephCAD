@@ -19,6 +19,7 @@ import {
   type BodyMeshResult,
   type KernelRequest,
   type KernelResponse,
+  type MeasureResult,
   type ReplayResult,
   type SketchRegionsResult,
 } from './protocol.ts'
@@ -447,7 +448,48 @@ async function handle(
       disposeSketch(req.sketchId)
       return { result: null, transfer: [] }
     }
+    case 'measure':
+      return { result: measure(oc, req.items), transfer: [] }
   }
+}
+
+function measure(
+  oc: OpenCascadeInstance,
+  items: { bodyId: number; kind: 'body' | 'face' | 'edge'; topoId: number }[],
+): MeasureResult {
+  const result: MeasureResult = {}
+  const add = (key: 'length' | 'area' | 'volume', v: number) => {
+    result[key] = (result[key] ?? 0) + v
+  }
+  for (const item of items) {
+    const shape = bodies.get(item.bodyId)
+    if (!shape) continue
+    const props = new oc.GProp_GProps_1()
+    if (item.kind === 'body') {
+      oc.BRepGProp.VolumeProperties_1(shape, props, false, false, true)
+      add('volume', props.Mass())
+    } else {
+      const kind =
+        item.kind === 'face'
+          ? oc.TopAbs_ShapeEnum.TopAbs_FACE
+          : oc.TopAbs_ShapeEnum.TopAbs_EDGE
+      const map = new oc.TopTools_IndexedMapOfShape_1()
+      oc.TopExp.MapShapes_1(shape, kind as TopAbs_ShapeEnum, map)
+      if (item.topoId >= 1 && item.topoId <= map.Extent()) {
+        const sub = map.FindKey(item.topoId)
+        if (item.kind === 'face') {
+          oc.BRepGProp.SurfaceProperties_1(sub, props, false, true)
+          add('area', props.Mass())
+        } else {
+          oc.BRepGProp.LinearProperties(sub, props, false, true)
+          add('length', props.Mass())
+        }
+      }
+      map.delete()
+    }
+    props.delete()
+  }
+  return result
 }
 
 /** 取平面 face 的草圖座標系；非平面回傳 null。faceId 與 tessellation 的拓撲索引一致。 */

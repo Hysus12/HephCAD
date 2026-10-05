@@ -23,4 +23,7 @@ export const documentController = new DocumentController({
 if (import.meta.env.DEV) {
   ;(globalThis as Record<string, unknown>).__heph = services
   ;(globalThis as Record<string, unknown>).__hephDoc = documentController
+  void import('../state/appStore.ts').then((m) => {
+    ;(globalThis as Record<string, unknown>).__hephStore = m.useAppStore
+  })
 }
