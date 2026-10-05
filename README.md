@@ -55,7 +55,7 @@ Near-term milestones (roughly in order):
 
 - **M6.5 — Modify tools, part 2**: rotation, offset face, multi-body move, keeping selection alive across modifications.
 - **M7.5 — Polish, part 2**: draggable section plane with cap faces, appearance/materials, adaptive tessellation for large models, i18n (English + 繁體中文), numeric input during drags.
-- **M8 — Open-source hardening**: ~~contributor docs~~ and ~~live demo site~~ are done; next is a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
+- **M8 — Open-source hardening**: ~~contributor docs~~ and ~~live demo site~~ are done; next is a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped). Off-the-shelf trimmed builds turned out to lack bindings we depend on — [ADR 0005](docs/adr/0005-trimmed-occt-wasm.md) has the evaluation, the exact symbol list, and the acceptance checks. A great self-contained project if you know Emscripten.
 
 Beyond the milestones, the fun stuff:
 
