@@ -1,6 +1,7 @@
 // 文件控制器：所有幾何變更的唯一入口。
 // apply → kernel 執行 → 場景/store 同步 → journal 記錄 → 自動存檔。
-// undo = 截斷重放、redo = 重執行下一筆。
+// undo = 截斷重放、redo = 重執行下一筆、recover = kernel 崩潰重啟後全量重放。
+// 重放中失敗的 op 會被略過並標記（journalFailures），文件其餘部分照常還原。
 
 import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { ApplyOpResult, BodyMeshResult } from '../kernel/protocol.ts'
@@ -25,6 +26,8 @@ export interface DocDeps {
 export class DocumentController {
   private entries: JournalEntry[] = []
   private cursor = 0
+  /** 最近一次重放時失敗的項目（索引 → 錯誤）。 */
+  private failures: Record<number, string> = {}
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   /** 序列化操作，避免 undo 與 apply 交錯。 */
   private queue: Promise<unknown> = Promise.resolve()
@@ -41,6 +44,9 @@ export class DocumentController {
         ...this.entries.slice(0, this.cursor),
         { label: opLabel(applied.op, (id) => this.nameOf(id)), op: applied.op },
       ]
+      this.failures = Object.fromEntries(
+        Object.entries(this.failures).filter(([i]) => Number(i) < this.cursor),
+      )
       this.cursor = this.entries.length
       this.applyEffects(applied)
       this.syncJournalUi()
@@ -53,7 +59,13 @@ export class DocumentController {
     return this.enqueue(async () => {
       if (this.cursor === 0) return
       this.cursor--
-      await this.rebuild()
+      try {
+        await this.rebuild()
+      } catch (e) {
+        // kernel 層級失敗（如崩潰）：游標還原，避免 journal 與場景脫鉤
+        this.cursor++
+        throw e
+      }
       this.syncJournalUi()
       this.scheduleSave()
     })
@@ -63,11 +75,20 @@ export class DocumentController {
     return this.enqueue(async () => {
       const kernel = this.deps.kernel()
       if (!kernel || this.cursor >= this.entries.length) return
+      // 失敗時 applyOp 拋錯、游標不前進——kernel 狀態未變，保持一致
       const applied = await kernel.applyOp(this.entries[this.cursor].op)
       this.cursor++
       this.applyEffects(applied)
       this.syncJournalUi()
       this.scheduleSave()
+    })
+  }
+
+  /** kernel 崩潰重啟後呼叫：以記憶體中的 journal 全量重放還原場景。 */
+  recover(): Promise<void> {
+    return this.enqueue(async () => {
+      await this.rebuild()
+      this.syncJournalUi()
     })
   }
 
@@ -96,7 +117,12 @@ export class DocumentController {
     if (!kernel) return
     const ops = this.entries.slice(0, this.cursor).map((e) => e.op)
     const replayed = await kernel.replayJournal(ops)
-    const names = aliveBodyNames(ops)
+    this.failures = Object.fromEntries(replayed.failed.map((f) => [f.index, f.error]))
+    if (replayed.failed.length > 0) {
+      console.warn('[doc] 重放時略過失敗的操作：', replayed.failed)
+    }
+    // 名稱只算成功套用的 op，避免失敗的建立 op 留下幽靈名稱
+    const names = aliveBodyNames(ops.filter((_, i) => !(i in this.failures)))
     const store = useAppStore.getState()
     this.deps.viewport()?.setAllBodies(replayed.bodies)
     store.clearSelection()
@@ -114,7 +140,11 @@ export class DocumentController {
   private applyEffects(applied: ApplyOpResult): void {
     const viewport = this.deps.viewport()
     const store = useAppStore.getState()
+    if (applied.op.kind === 'transform') {
+      viewport?.discardSketchesOnBody(applied.op.bodyId)
+    }
     for (const removedId of applied.removed) {
+      viewport?.discardSketchesOnBody(removedId)
       viewport?.removeBody(removedId)
       store.removeBody(removedId)
     }
@@ -155,6 +185,7 @@ export class DocumentController {
     useAppStore.getState().setJournal(
       this.entries.map((e) => e.label),
       this.cursor,
+      this.failures,
     )
   }
 

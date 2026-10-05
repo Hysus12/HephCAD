@@ -29,17 +29,24 @@ function makeFakeKernel() {
     }
     throw new Error('unsupported in fake')
   })
+  // 名稱在 failingNames 裡的建立 op 重放時失敗（模擬 OCCT 拒絕某個操作）
+  const failingNames = new Set<string>()
   const replayJournal = vi.fn(async (ops: JournalOp[]) => {
     const alive = new Set<number>()
-    for (const op of ops) {
-      if (op.kind === 'createBox' || op.kind === 'createCylinder') alive.add(op.bodyId)
+    const failed: { index: number; error: string }[] = []
+    ops.forEach((op, index) => {
+      if (op.kind === 'createBox' || op.kind === 'createCylinder') {
+        if (failingNames.has(op.name)) failed.push({ index, error: 'boom' })
+        else alive.add(op.bodyId)
+      }
       if (op.kind === 'deleteBody') alive.delete(op.bodyId)
-    }
-    return { bodies: [...alive].map((bodyId) => ({ bodyId, mesh: emptyMesh() })) }
+    })
+    return { bodies: [...alive].map((bodyId) => ({ bodyId, mesh: emptyMesh() })), failed }
   })
-  return { applyOp, replayJournal } as unknown as KernelClient & {
+  return { applyOp, replayJournal, failingNames } as unknown as KernelClient & {
     applyOp: typeof applyOp
     replayJournal: typeof replayJournal
+    failingNames: Set<string>
   }
 }
 
@@ -57,6 +64,7 @@ describe('DocumentController', () => {
       selection: [],
       journalLabels: [],
       journalCursor: 0,
+      journalFailures: {},
     })
     kernel = makeFakeKernel()
     controller = new DocumentController({ kernel: () => kernel, viewport: () => null })
@@ -115,5 +123,39 @@ describe('DocumentController', () => {
     await controller.apply(boxDraft())
     await controller.redo()
     expect(useAppStore.getState().journalCursor).toBe(1)
+  })
+  it('重放時失敗的 op 被略過並標記，其餘照常還原', async () => {
+    await controller.apply(boxDraft('a'))
+    await controller.apply(boxDraft('壞'))
+    await controller.apply(boxDraft('c'))
+    kernel.failingNames.add('壞')
+    await controller.undo() // 重放 [a, 壞] → 壞 失敗
+    const s = useAppStore.getState()
+    expect(s.journalFailures).toEqual({ 1: 'boom' })
+    expect(s.bodies.map((b) => b.name)).toEqual(['a'])
+    expect(s.journalCursor).toBe(2)
+  })
+
+  it('kernel 層級失敗時 undo 還原游標', async () => {
+    await controller.apply(boxDraft())
+    await controller.apply(boxDraft())
+    kernel.replayJournal.mockRejectedValueOnce(new Error('幾何核心已重新啟動'))
+    await expect(controller.undo()).rejects.toThrow('幾何核心已重新啟動')
+    expect(useAppStore.getState().journalCursor).toBe(2)
+    expect(controller.canRedo()).toBe(false)
+    // 佇列沒有卡死：之後的操作照常執行
+    await controller.undo()
+    expect(useAppStore.getState().journalCursor).toBe(1)
+  })
+
+  it('recover 以記憶體中的 journal 全量重放', async () => {
+    await controller.apply(boxDraft('a'))
+    await controller.apply(boxDraft('b'))
+    useAppStore.setState({ bodies: [] }) // 模擬崩潰後場景遺失
+    await controller.recover()
+    expect(kernel.replayJournal).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'a' })]),
+    )
+    expect(useAppStore.getState().bodies.map((b) => b.name)).toEqual(['a', 'b'])
   })
 })

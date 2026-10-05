@@ -6,7 +6,6 @@ import ocFactory from 'opencascade.js/dist/opencascade.full.js'
 import ocWasmUrl from 'opencascade.js/dist/opencascade.full.wasm?url'
 import type {
   OpenCascadeInstance,
-  TopoDS_Face,
   TopoDS_Shape,
   TopAbs_ShapeEnum,
   STEPControl_StepModelType,
@@ -14,12 +13,14 @@ import type {
 import type { JournalOp, Translation } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import {
+  isFatalKernelError,
   meshTransferables,
   type ApplyOpResult,
   type BodyMeshResult,
   type KernelRequest,
   type KernelResponse,
   type MeasureResult,
+  type ReplayFailure,
   type ReplayResult,
   type SketchRegionsResult,
 } from './protocol.ts'
@@ -59,21 +60,6 @@ function resetAllBodies(): void {
   for (const shape of bodies.values()) shape.delete()
   bodies.clear()
   nextBodyId = 1
-  for (const sketchId of [...sketchRegions.keys()]) disposeSketch(sketchId)
-}
-
-// ---- 草圖區域（僅供繪圖期間的顯示與命中測試） ----
-
-const sketchRegions = new Map<number, (TopoDS_Face | null)[]>()
-const sketchPlanes = new Map<number, SketchPlane>()
-
-function disposeSketch(sketchId: number): void {
-  const faces = sketchRegions.get(sketchId)
-  if (faces) {
-    for (const f of faces) f?.delete()
-    sketchRegions.delete(sketchId)
-  }
-  sketchPlanes.delete(sketchId)
 }
 
 // ---- 幾何工具 ----
@@ -415,8 +401,20 @@ async function handle(
     }
     case 'replayJournal': {
       resetAllBodies()
-      for (const jop of req.ops) applyJournalOp(oc, jop)
-      const alive: ReplayResult = { bodies: [...bodies.keys()].map(tessellateBody) }
+      const failed: ReplayFailure[] = []
+      req.ops.forEach((jop, index) => {
+        try {
+          applyJournalOp(oc, jop)
+        } catch (e) {
+          // 致命錯誤代表模組已毀，繼續重放沒有意義——交給外層回報 fatal
+          if (isFatalKernelError(e)) throw e
+          failed.push({ index, error: errorMessage(e) })
+        }
+      })
+      const alive: ReplayResult = {
+        bodies: [...bodies.keys()].map(tessellateBody),
+        failed,
+      }
       return {
         result: alive,
         transfer: alive.bodies.flatMap((b) => meshTransferables(b.mesh)),
@@ -430,10 +428,7 @@ async function handle(
       return { result: facePlane(oc, shape, req.faceId), transfer: [] }
     }
     case 'sketchRegions': {
-      disposeSketch(req.sketchId)
       const { faces, debug } = buildSketchRegions(oc, req.plane, req.curves)
-      sketchRegions.set(req.sketchId, faces)
-      sketchPlanes.set(req.sketchId, req.plane)
       const regionsResult: SketchRegionsResult = {
         regions: faces.map((face, i) => ({
           regionId: i + 1,
@@ -441,12 +436,9 @@ async function handle(
         })),
         debug,
       }
+      for (const face of faces) face.delete()
       const transfer = regionsResult.regions.flatMap((r) => meshTransferables(r.mesh))
       return { result: regionsResult, transfer }
-    }
-    case 'clearSketch': {
-      disposeSketch(req.sketchId)
-      return { result: null, transfer: [] }
     }
     case 'measure':
       return { result: measure(oc, req.items), transfer: [] }
@@ -555,8 +547,13 @@ self.onmessage = async (event: MessageEvent<KernelRequest>) => {
     const response: KernelResponse = {
       id: req.id,
       ok: false,
-      error: e instanceof Error ? e.message : String(e),
+      error: errorMessage(e),
+      fatal: isFatalKernelError(e),
     }
     self.postMessage(response)
   }
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }

@@ -370,6 +370,28 @@ body {
   opacity: 0.55;
 }
 
+.history-row-failed {
+  color: #f0b46a;
+  text-decoration: line-through;
+  text-decoration-color: rgba(240, 180, 106, 0.6);
+}
+
+.history-warn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #f0b46a;
+  color: #141416;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+
 /* ---- 幾何核心載入狀態 ---- */
 
 .kernel-pill {

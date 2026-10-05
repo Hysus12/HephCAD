@@ -37,6 +37,8 @@ export interface CommittedSketch {
   regions: CommittedRegion[]
   /** 擠出消耗一個區域後呼叫。 */
   consumeRegion: (regionId: number) => void
+  /** 從場景移除整張草圖（線條＋剩餘區域）。 */
+  dispose: () => void
 }
 
 /**
@@ -55,6 +57,8 @@ export class SketchSession {
   /** 區域偵測的世代標記，丟棄過期的回應。 */
   private regionEpoch = 0
   private lastRegions: MeshData[] = []
+  /** 進行中的區域偵測；完成草圖前必須等它，否則 regionIndex 會對應到舊的區域清單。 */
+  private regionsInFlight: Promise<void> | null = null
 
   constructor(
     plane: SketchPlane,
@@ -93,18 +97,15 @@ export class SketchSession {
   }
 
   /**
-   * commit=true：保留曲線與區域渲染，回傳可擠出的區域清單
-   * （kernel 內的 region faces 已就位）。
+   * commit=true：保留曲線與區域渲染，回傳可擠出的區域清單。
+   * 沒有任何閉合區域時直接整張移除（草圖不是持久實體，留著只會變成殘影）。
    */
   async finish(commit: boolean): Promise<CommittedSketch | null> {
     this.tool.cancel()
+    if (commit) await this.settleRegions()
     this.renderer.dispose(commit)
-    if (!commit) {
-      await this.deps.kernel.clearSketch(this.sketchId)
-      this.deps.invalidate()
-      return null
-    }
     this.deps.invalidate()
+    if (!commit) return null
 
     const meshes = this.renderer.regionMeshes()
     const regions: CommittedRegion[] = this.lastRegions.map((meshData, i) => ({
@@ -112,7 +113,10 @@ export class SketchSession {
       meshData,
       object: meshes[i],
     }))
-    if (regions.length === 0) return null
+    if (regions.length === 0) {
+      this.renderer.disposeCommitted()
+      return null
+    }
     return {
       sketchId: this.sketchId,
       plane: this.plane,
@@ -122,6 +126,10 @@ export class SketchSession {
       consumeRegion: (regionId) => {
         const region = regions.find((r) => r.regionId === regionId)
         if (region) this.renderer.removeRegionMesh(region.object)
+      },
+      dispose: () => {
+        this.renderer.disposeCommitted()
+        this.deps.invalidate()
       },
     }
   }
@@ -152,27 +160,34 @@ export class SketchSession {
         this.curves.push({ ...c, id: this.nextCurveId++ } as SketchCurve)
       }
       this.renderer.setCurves(this.curves)
-      void this.refreshRegions()
+      this.refreshRegions()
     }
     this.renderer.setPreview(update.preview, snap ?? this.lastSnap, this.deps.worldPerPixel())
     this.deps.invalidate()
   }
 
-  private async refreshRegions(): Promise<void> {
+  /** 等到最後一次區域偵測完成（期間若又觸發新偵測就繼續等）。 */
+  private async settleRegions(): Promise<void> {
+    while (this.regionsInFlight) await this.regionsInFlight
+  }
+
+  private refreshRegions(): void {
     const epoch = ++this.regionEpoch
-    try {
-      const result = await this.deps.kernel.sketchRegions(
-        this.sketchId,
-        this.plane,
-        this.curves,
-      )
-      if (epoch !== this.regionEpoch) return // 已有更新的偵測在跑
-      this.lastRegions = result.regions.map((r) => r.mesh)
-      this.renderer.setRegions(this.lastRegions)
-      useAppStore.getState().setSketchRegionCount(result.regions.length)
-      this.deps.invalidate()
-    } catch (e) {
-      console.warn('[sketch] 區域偵測失敗：', e)
-    }
+    const run = (async () => {
+      try {
+        const result = await this.deps.kernel.sketchRegions(this.plane, this.curves)
+        if (epoch !== this.regionEpoch) return // 已有更新的偵測在跑
+        this.lastRegions = result.regions.map((r) => r.mesh)
+        this.renderer.setRegions(this.lastRegions)
+        useAppStore.getState().setSketchRegionCount(result.regions.length)
+        this.deps.invalidate()
+      } catch (e) {
+        console.warn('[sketch] 區域偵測失敗：', e)
+      }
+    })()
+    this.regionsInFlight = run
+    void run.finally(() => {
+      if (this.regionsInFlight === run) this.regionsInFlight = null
+    })
   }
 }

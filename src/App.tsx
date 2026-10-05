@@ -13,10 +13,18 @@ import { ViewportCanvas } from './ui/ViewportCanvas.tsx'
 
 export function App() {
   useEffect(() => {
-    const kernel = new KernelClient((status, detail) => {
-      useAppStore.getState().setKernelStatus(status, detail)
-      // kernel 就緒後恢復上次的文件（OPFS 自動存檔）
-      if (status === 'ready') void documentController.load()
+    let loaded = false
+    const kernel = new KernelClient({
+      onStatus: (status, detail) => {
+        useAppStore.getState().setKernelStatus(status, detail)
+        // 首次就緒：恢復上次的文件（OPFS 自動存檔）
+        if (status === 'ready' && !loaded) {
+          loaded = true
+          void documentController.load()
+        }
+      },
+      // 崩潰重啟後以記憶體中的 journal 還原（比存檔新，不能重讀存檔）
+      onRestarted: () => void documentController.recover(),
     })
     services.kernel = kernel
     return () => {

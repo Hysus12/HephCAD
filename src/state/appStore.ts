@@ -70,7 +70,13 @@ export interface AppState {
   /** 歷程面板：journal 標籤與游標（cursor 之後的是可 redo 的灰色項）。 */
   journalLabels: string[]
   journalCursor: number
-  setJournal: (labels: string[], cursor: number) => void
+  /** 重放時失敗、被略過的 journal 項目（索引 → 錯誤訊息）。 */
+  journalFailures: Record<number, string>
+  setJournal: (
+    labels: string[],
+    cursor: number,
+    failures: Record<number, string>,
+  ) => void
 }
 
 export const useAppStore = create<AppState>()((set) => ({
@@ -129,5 +135,7 @@ export const useAppStore = create<AppState>()((set) => ({
 
   journalLabels: [],
   journalCursor: 0,
-  setJournal: (labels, cursor) => set({ journalLabels: labels, journalCursor: cursor }),
+  journalFailures: {},
+  setJournal: (labels, cursor, failures) =>
+    set({ journalLabels: labels, journalCursor: cursor, journalFailures: failures }),
 }))

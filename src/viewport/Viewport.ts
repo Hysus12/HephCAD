@@ -51,6 +51,11 @@ const MAJOR_SPACING = 25
 /** 觸控選 edge 的螢幕容差（px）。 */
 const EDGE_PICK_TOLERANCE_PX = 10
 
+/** 被剖面剪掉的點（three 的慣例：到平面的有號距離為負即被剪掉）。 */
+function isClipped(point: Vector3): boolean {
+  return sharedClippingPlanes.some((plane) => plane.distanceToPoint(point) < 0)
+}
+
 /**
  * 主 3D 視口：renderer、場景（網格、座標軸、光源）、相機 rig、
  * 手勢與 ViewCube 的組裝點。之後的 body mesh、選取高亮都掛在這裡。
@@ -133,14 +138,15 @@ export class Viewport {
       if (state.sectionActive !== prev.sectionActive) {
         sharedClippingPlanes.length = 0
         if (state.sectionActive) {
-          // 前向剖切：切在所有 body 的 bbox 中心，保留前半
+          // 切在所有 body 的 bbox 中心，移除靠近前視/等角視相機（-Y 側）的那一半，
+          // 剖口才會朝向使用者、看得到內部。保留 y ≥ centerY。
           let centerY = 0
           if (this.bodies.size > 0) {
             const bbox = new Box3()
             for (const body of this.bodies.values()) bbox.expandByObject(body.group)
             centerY = (bbox.min.y + bbox.max.y) / 2
           }
-          sharedClippingPlanes.push(new Plane(new Vector3(0, -1, 0), centerY))
+          sharedClippingPlanes.push(new Plane(new Vector3(0, 1, 0), -centerY))
         }
         this.invalidate()
       }
@@ -198,12 +204,22 @@ export class Viewport {
   }
 
   /**
+   * 相機矩陣跟上 rig。渲染前與每次指標事件做射線換算前都要呼叫——
+   * 否則換算會用「上一次渲染」的矩陣，在降頻（低電量、背景分頁）或
+   * 手勢剛改過 rig 時對不上手指位置。
+   */
+  private syncCamera(): void {
+    this.rig.position(this.camera.position)
+    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
+    this.camera.updateMatrixWorld()
+  }
+
+  /**
    * 同步渲染並擷取畫面（文件截圖/除錯用）。
    * WebGL drawing buffer 在合成後即失效，render 與 toDataURL 必須同步執行。
    */
   captureImage(): string {
-    this.rig.position(this.camera.position)
-    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
+    this.syncCamera()
     this.renderer.render(this.scene, this.camera)
     this.viewCube.render(this.renderer, this.rig, this.width, this.height)
     return this.renderer.domElement.toDataURL('image/png')
@@ -234,11 +250,26 @@ export class Viewport {
   /** 重放/開檔後整批重建場景（清掉既有 body 與可擠出區域）。 */
   setAllBodies(list: BodyMeshResult[]): void {
     for (const bodyId of [...this.bodies.keys()]) this.removeBody(bodyId)
-    for (const sketch of this.committedSketches) {
-      for (const region of sketch.regions) sketch.consumeRegion(region.regionId)
-    }
+    for (const sketch of this.committedSketches) sketch.dispose()
     this.committedSketches.length = 0
+    this.syncExtrudableCount()
     for (const body of list) this.addBody(body.bodyId, body.mesh)
+    this.invalidate()
+  }
+
+  /**
+   * 宿主 body 被移動或刪除時，畫在它面上的待擠出草圖已失去意義
+   * （區域會留在原地、擠出會長在空中），一併移除。
+   */
+  discardSketchesOnBody(bodyId: number): void {
+    const keep: CommittedSketch[] = []
+    for (const sketch of this.committedSketches) {
+      if (sketch.hostBodyId === bodyId) sketch.dispose()
+      else keep.push(sketch)
+    }
+    if (keep.length === this.committedSketches.length) return
+    this.committedSketches.splice(0, this.committedSketches.length, ...keep)
+    this.syncExtrudableCount()
     this.invalidate()
   }
 
@@ -284,6 +315,7 @@ export class Viewport {
 
   private forwardStroke(phase: 'start' | 'move' | 'end', clientX: number, clientY: number): void {
     if (!this.sketch) return
+    this.syncCamera()
     const uv = this.clientToSketchUv(clientX, clientY)
     if (!uv) return
     if (phase === 'start') this.sketch.strokeStart(uv)
@@ -315,6 +347,7 @@ export class Viewport {
 
   private handleGrabStart(clientX: number, clientY: number): boolean {
     if (this.sketch) return false
+    this.syncCamera()
     const mode = useAppStore.getState().toolMode
     if (mode === 'move') return this.beginMoveDrag(clientX, clientY)
     if (mode === 'fillet' || mode === 'chamfer' || mode === 'shell') {
@@ -324,6 +357,7 @@ export class Viewport {
   }
 
   private handleGrabMove(clientX: number, clientY: number): void {
+    this.syncCamera()
     if (this.moveDrag) this.updateMoveDrag(clientX, clientY)
     else if (this.paramDrag) this.updateParamDrag(clientX, clientY)
     else this.updateExtrude(clientX, clientY)
@@ -352,13 +386,12 @@ export class Viewport {
   private beginMoveDrag(clientX: number, clientY: number): boolean {
     const store = useAppStore.getState()
     const bodySel = store.selection.find((i) => i.kind === 'body')
-    if (!bodySel || !this.bodies.has(bodySel.bodyId)) return false
+    const body = bodySel && this.bodies.get(bodySel.bodyId)
+    if (!bodySel || !body) return false
     const rect = this.container.getBoundingClientRect()
     const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
 
-    // Z 把手命中：沿 Z 拖曳；否則沿地面 XY
-    let axis: 'xy' | 'z' = 'xy'
-    let zAxisPx: Px = { x: 0, y: 0 }
+    // Z 把手命中：沿 Z 拖曳
     if (this.moveHandle) {
       const base = this.worldToLocalPx(this.moveHandle.position)
       const tipWorld = this.moveHandle.position
@@ -366,31 +399,30 @@ export class Viewport {
         .addScaledVector(new Vector3(0, 0, 1), this.moveHandleLen)
       const tip = this.worldToLocalPx(tipWorld)
       if (distanceToSegment(local, base, tip) < 28) {
-        axis = 'z'
         const unit = this.worldToLocalPx(
           this.moveHandle.position.clone().add(new Vector3(0, 0, 1)),
         )
-        zAxisPx = { x: unit.x - base.x, y: unit.y - base.y }
+        this.moveDrag = {
+          bodyId: bodySel.bodyId,
+          axis: 'z',
+          startHit: new Vector3(),
+          startPx: local,
+          zAxisPx: { x: unit.x - base.x, y: unit.y - base.y },
+          translation: [0, 0, 0],
+        }
+        return true
       }
     }
 
-    const startHit = new Vector3()
-    if (axis === 'xy') {
-      const ndc = new Vector2(
-        (local.x / this.width) * 2 - 1,
-        -((local.y / this.height) * 2 - 1),
-      )
-      this.raycaster.setFromCamera(ndc, this.camera)
-      const ground = new Plane(new Vector3(0, 0, 1), 0)
-      if (!this.raycaster.ray.intersectPlane(ground, startHit)) return false
-    }
-
+    // 從 body 本身開始：沿「通過按下點的水平面」拖曳，物體跟著手指走
+    const hit = this.raycastBody(body, local)
+    if (!hit) return false
     this.moveDrag = {
       bodyId: bodySel.bodyId,
-      axis,
-      startHit,
+      axis: 'xy',
+      startHit: hit,
       startPx: local,
-      zAxisPx,
+      zAxisPx: { x: 0, y: 0 },
       translation: [0, 0, 0],
     }
     return true
@@ -411,9 +443,9 @@ export class Viewport {
         -((local.y / this.height) * 2 - 1),
       )
       this.raycaster.setFromCamera(ndc, this.camera)
-      const ground = new Plane(new Vector3(0, 0, 1), 0)
+      const dragPlane = new Plane(new Vector3(0, 0, 1), -drag.startHit.z)
       const hit = new Vector3()
-      if (!this.raycaster.ray.intersectPlane(ground, hit)) return
+      if (!this.raycaster.ray.intersectPlane(dragPlane, hit)) return
       drag.translation = [hit.x - drag.startHit.x, hit.y - drag.startHit.y, 0]
     }
     this.bodies.get(drag.bodyId)?.group.position.set(...drag.translation)
@@ -452,8 +484,11 @@ export class Viewport {
     const items = store.selection.filter((i) => i.kind === wanted)
     if (items.length === 0) return false
     const bodyId = items[0].bodyId
-    if (!this.bodies.has(bodyId)) return false
+    const body = this.bodies.get(bodyId)
+    if (!body) return false
     const rect = this.container.getBoundingClientRect()
+    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
+    if (!this.raycastBody(body, local)) return false
     this.paramDrag = {
       mode,
       bodyId,
@@ -671,6 +706,7 @@ export class Viewport {
         (r) => r.regionId !== drag.regionId,
       )
       if (drag.sketch.regions.length === 0) {
+        drag.sketch.dispose()
         const i = this.committedSketches.indexOf(drag.sketch)
         if (i >= 0) this.committedSketches.splice(i, 1)
       }
@@ -686,6 +722,20 @@ export class Viewport {
     this.extrudeDrag.preview.dispose()
     this.extrudeDrag = null
     this.invalidate()
+  }
+
+  /** 螢幕點是否落在某 body 的可見部分上；回傳命中的世界座標。 */
+  private raycastBody(body: BodyObject, local: Px): Vector3 | null {
+    if (!body.group.visible) return null
+    const ndc = new Vector2(
+      (local.x / this.width) * 2 - 1,
+      -((local.y / this.height) * 2 - 1),
+    )
+    this.raycaster.setFromCamera(ndc, this.camera)
+    const hit = this.raycaster
+      .intersectObject(body.surface, false)
+      .find((h) => !isClipped(h.point))
+    return hit ? hit.point.clone() : null
   }
 
   private worldToLocalPx(world: Vector3): Px {
@@ -730,9 +780,7 @@ export class Viewport {
     if (!animating && !this.needsRender) return
     this.needsRender = false
 
-    this.rig.position(this.camera.position)
-    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
-
+    this.syncCamera()
     this.renderer.render(this.scene, this.camera)
     this.viewCube.render(this.renderer, this.rig, this.width, this.height)
   }
@@ -743,6 +791,7 @@ export class Viewport {
     const x = clientX - rect.left
     const y = clientY - rect.top
     if (this.sketch) return // 草圖模式：tap 由筆劃事件涵蓋，不做選取/視角切換
+    this.syncCamera()
     const orientation = this.viewCube.pick(x, y, this.width)
     if (orientation) {
       this.rig.snapTo(orientation)
@@ -770,14 +819,18 @@ export class Viewport {
     this.raycaster.params.Line.threshold = threshold
 
     const visibleBodies = [...this.bodies.values()].filter((b) => b.group.visible)
-    const faceHit = this.raycaster.intersectObjects(
-      visibleBodies.map((b) => b.surface),
-      false,
-    )[0]
-    const edgeHit = this.raycaster.intersectObjects(
-      visibleBodies.map((b) => b.edges),
-      false,
-    )[0]
+    const faceHit = this.raycaster
+      .intersectObjects(
+        visibleBodies.map((b) => b.surface),
+        false,
+      )
+      .find((h) => !isClipped(h.point))
+    const edgeHit = this.raycaster
+      .intersectObjects(
+        visibleBodies.map((b) => b.edges),
+        false,
+      )
+      .find((h) => !isClipped(h.point))
 
     // edge 疊在 face 表面上，允許在容差內比 face 略遠仍然勝出。
     const preferEdge =

@@ -29,10 +29,10 @@ export interface BodyMeshResult {
   mesh: MeshData
 }
 
-/** 建立時的平移（mm），讓連續新增的物體不會疊在原點。 */
-export type Translation = [number, number, number]
-
-/** 草圖閉合區域：kernel 內留有對應的 face，供 M4 擠出。 */
+/**
+ * 草圖閉合區域（僅供顯示與擠出命中測試）。kernel 不保留 face：
+ * 擠出 op 會從曲線重建區域，所以這裡是無狀態的。
+ */
 export interface RegionResult {
   regionId: number
   mesh: MeshData
@@ -55,9 +55,17 @@ export interface ApplyOpResult {
   removed: number[]
 }
 
+export interface ReplayFailure {
+  /** 在重放 ops 陣列中的索引。 */
+  index: number
+  error: string
+}
+
 export interface ReplayResult {
   /** 重放後所有存活的 body。 */
   bodies: BodyMeshResult[]
+  /** 重放時失敗而被略過的 op（之後依賴它的 op 通常也會連帶失敗）。 */
+  failed: ReplayFailure[]
 }
 
 export type KernelRequest =
@@ -75,11 +83,9 @@ export type KernelRequest =
   | {
       id: number
       op: 'sketchRegions'
-      sketchId: number
       plane: SketchPlane
       curves: SketchCurve[]
     }
-  | { id: number; op: 'clearSketch'; sketchId: number }
   | {
       id: number
       op: 'measure'
@@ -100,7 +106,27 @@ export type KernelOp = KernelRequest['op']
 
 export type KernelResponse =
   | { id: number; ok: true; result: unknown }
-  | { id: number; ok: false; error: string }
+  | {
+      id: number
+      ok: false
+      error: string
+      /**
+       * wasm 已 abort（OOM、記憶體越界等），之後所有呼叫都會失敗：
+       * 主執行緒應終止並重啟 worker、重放文件。
+       */
+      fatal?: boolean
+    }
+
+/** emscripten abort / wasm trap 的特徵——發生後模組狀態不可再信任。 */
+export function isFatalKernelError(error: unknown): boolean {
+  if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) {
+    return true
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return /aborted|abort\(|unreachable|out of bounds|out of memory|cannot enlarge memory/i.test(
+    message,
+  )
+}
 
 /** 收集 MeshData 內所有可轉移的 buffer。 */
 export function meshTransferables(mesh: MeshData): ArrayBuffer[] {

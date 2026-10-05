@@ -159,12 +159,15 @@ export class SketchRenderer {
     ;(this.snapMarker.material as MeshBasicMaterial).dispose()
     this.snapMarker.removeFromParent()
 
-    if (!keepCommitted) {
-      this.setRegions([])
-      this.committedLines.geometry.dispose()
-      ;(this.committedLines.material as LineBasicMaterial).dispose()
-      this.group.removeFromParent()
-    }
+    if (!keepCommitted) this.disposeCommitted()
+  }
+
+  /** 移除保留下來的曲線與區域（擠出用完、undo 重建、宿主被移動時）。 */
+  disposeCommitted(): void {
+    this.setRegions([])
+    this.committedLines.geometry.dispose()
+    ;(this.committedLines.material as LineBasicMaterial).dispose()
+    this.group.removeFromParent()
   }
 
   private orientMarkerToPlane(): void {

@@ -16,7 +16,7 @@ The signature interaction already works today:
 
 ![A plate with a circular hole cut straight through it, modeled in HephCAD's dark touch-first viewport](docs/assets/cut-plate.webp)
 
-Five gestures, zero dialogs, and you're holding a real boundary-representation solid that will export to STEP one milestone from now. The hole in the plate at the top of this page was made exactly this way.
+Five gestures, zero dialogs, and you're holding a real boundary-representation solid that exports straight to STEP. The plate above went from the blue region at the top of this page to a clean through-hole exactly this way.
 
 ## Why this exists
 
@@ -44,7 +44,8 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Measurement built into selection**: pick an edge and see its length, a face its area, a body its volume — no separate measure tool.
 - **Section view**: one tap slices the model at its center so you can see inside (no cap faces yet).
 - **Installable PWA**: the service worker precaches the whole app including the 50 MB kernel — second launch on iPad is instant and fully offline.
-- 69 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, and the document journal.
+- **Crash-proof kernel**: if the WASM kernel aborts (say, out of memory on an iPad), in-flight requests fail fast, the worker restarts, and your model is replayed from the in-memory journal in a few seconds. Ops that no longer succeed on replay are skipped and flagged in the history panel instead of losing the whole document.
+- 80 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, the document journal, and kernel crash recovery.
 
 ## Future work
 

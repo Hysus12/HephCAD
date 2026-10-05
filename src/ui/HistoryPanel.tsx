@@ -13,6 +13,7 @@ const stroke = {
 export function HistoryPanel() {
   const labels = useAppStore((s) => s.journalLabels)
   const cursor = useAppStore((s) => s.journalCursor)
+  const failures = useAppStore((s) => s.journalFailures)
   const sketchActive = useAppStore((s) => s.sketchActive)
 
   if (labels.length === 0 || sketchActive) return null
@@ -45,14 +46,21 @@ export function HistoryPanel() {
         </button>
       </div>
       <div className="history-list">
-        {labels.map((label, i) => (
-          <div
-            key={i}
-            className={`history-row ${i >= cursor ? 'history-row-undone' : ''}`}
-          >
-            {label}
-          </div>
-        ))}
+        {labels.map((label, i) => {
+          const failure = failures[i]
+          return (
+            <div
+              key={i}
+              className={`history-row ${i >= cursor ? 'history-row-undone' : ''} ${
+                failure ? 'history-row-failed' : ''
+              }`}
+              title={failure ? `重放時失敗，已略過：${failure}` : undefined}
+            >
+              {failure && <span className="history-warn" aria-label="失敗">!</span>}
+              {label}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
