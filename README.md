@@ -6,6 +6,8 @@
 
 HephCAD is an attempt to build the tablet CAD experience people love — direct modeling with your fingers and an Apple Pencil — as an open-source web app. Real B-rep solids powered by OpenCascade compiled to WebAssembly, running entirely in your browser. No install, no account, no cloud.
 
+**▶ Try it: [hysus12.github.io/HephCAD](https://hysus12.github.io/HephCAD/)** — best in Safari on an iPad. Tap Share → *Add to Home Screen* and it works offline after the first load.
+
 The signature interaction already works today:
 
 1. Tap the sketch tool and draw a rectangle on the ground grid.
@@ -53,7 +55,7 @@ Near-term milestones (roughly in order):
 
 - **M6.5 — Modify tools, part 2**: rotation, offset face, multi-body move, keeping selection alive across modifications.
 - **M7.5 — Polish, part 2**: draggable section plane with cap faces, appearance/materials, adaptive tessellation for large models, i18n (English + 繁體中文), numeric input during drags.
-- **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
+- **M8 — Open-source hardening**: ~~contributor docs~~ and ~~live demo site~~ are done; next is a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
 
 Beyond the milestones, the fun stuff:
 
@@ -77,13 +79,13 @@ npm install
 npm run dev        # then open http://localhost:5173
 ```
 
-For iPad testing, the dev server binds to your LAN — open `http://<your-mac-ip>:5173` from the iPad. First load fetches the 14 MB WASM kernel; after that it's instant.
+For iPad testing, the dev server binds to your LAN — open `http://<your-mac-ip>:5173` from the iPad. First load fetches the 50 MB WASM kernel (14 MB compressed on the demo site); after that it's cached.
 
 Checks: `npm run test` · `npm run lint` · `npm run typecheck` · `npm run build`
 
 ## Contributing
 
-This project is small enough that one person can still hold the whole architecture in their head — which makes it a great time to jump in. Areas where help moves the needle most:
+This project is small enough that one person can still hold the whole architecture in their head — which makes it a great time to jump in. Start with **[docs/architecture.md](docs/architecture.md)** (how a drag-extrude flows through every layer, plus a recipe for adding a new operation) and **[CONTRIBUTING.md](CONTRIBUTING.md)**. Areas where help moves the needle most:
 
 - **Touch/Pencil UX**: you have an iPad and opinions about how CAD should feel? Test the sketch→extrude flow and file issues about anything that feels off.
 - **OCCT from WASM**: booleans, fillets, STEP I/O, and the dark art of a trimmed Emscripten build.

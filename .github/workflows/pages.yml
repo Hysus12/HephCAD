@@ -1,0 +1,48 @@
+name: Deploy demo to GitHub Pages
+
+# 每次 main 更新就把最新版部署成可直接在 iPad Safari 打開的線上 demo。
+# 一次性設定：repo Settings → Pages → Source 選「GitHub Actions」。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 只保留最新一次部署；進行中的部署不中斷（避免半套上線）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      # 專案站位於 https://<owner>.github.io/<repo>/，資源路徑要帶 repo 名稱
+      - run: npx vite build --base=/${{ github.event.repository.name }}/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
