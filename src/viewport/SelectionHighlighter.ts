@@ -8,7 +8,7 @@ import {
   MeshBasicMaterial,
   Scene,
 } from 'three'
-import type { SelectionItem } from '../state/appStore.ts'
+import type { BodySelection } from '../state/appStore.ts'
 import type { BodyObject } from './bodyMesh.ts'
 
 const FACE_COLOR = 0x4a8df0
@@ -27,7 +27,7 @@ export class SelectionHighlighter {
   }
 
   /** 重新套用整組選取（selection 量小，全清重建最簡單也夠快）。 */
-  apply(selection: SelectionItem[], bodies: Map<number, BodyObject>): void {
+  apply(selection: BodySelection[], bodies: Map<number, BodyObject>): void {
     this.clear()
     for (const item of selection) {
       const body = bodies.get(item.bodyId)
@@ -52,7 +52,7 @@ export class SelectionHighlighter {
     }
   }
 
-  private addFaceOverlay(body: BodyObject, item: SelectionItem): void {
+  private addFaceOverlay(body: BodyObject, item: BodySelection): void {
     const sourceIndex = body.surface.geometry.getIndex()
     if (!sourceIndex) return
     let indexArray = sourceIndex.array as Uint32Array
@@ -80,7 +80,7 @@ export class SelectionHighlighter {
     this.overlays.add(overlay)
   }
 
-  private addEdgeOverlay(body: BodyObject, item: SelectionItem): void {
+  private addEdgeOverlay(body: BodyObject, item: BodySelection): void {
     const g = body.edgeGroups.find((eg) => eg.topoId === item.topoId)
     if (!g) return
     const geometry = new BufferGeometry()

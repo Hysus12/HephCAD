@@ -1,51 +1,49 @@
 // 情境動作列：依目前選取顯示可用操作（Shapr3D 式，選了才出現）。
-//   body → 移動 / 複製
-//   edge → 圓角 / 倒角
-//   face → 抽殼
-// 模式型按鈕（移動/圓角/倒角/抽殼）啟用後由 viewport 的拖曳設定參數。
+//   草圖區域 → 拖曳藍色箭頭擠出；正視
+//   草圖線   → 刪除；正視
+//   面       → 拖曳藍色箭頭推拉；抽殼；正視
+//   邊       → 圓角 / 倒角（之後拖曳橘色箭頭）
+//   主體     → 移動（三軸箭頭）/ 複製 / 刪除
+// 量測（長度/面積/體積）跟著 body 類選取一起顯示。
 
 import { useEffect, useState } from 'react'
 import { copySelectedBody } from '../app/bodyActions.ts'
 import { services } from '../app/services.ts'
+import { deleteSelection } from '../app/viewportHost.ts'
 import type { MeasureResult } from '../kernel/protocol.ts'
-import { useAppStore, type AppState } from '../state/appStore.ts'
-
-interface ModeAction {
-  mode: NonNullable<AppState['toolMode']>
-  label: string
-}
+import { isBodySelection, useAppStore, type AppState } from '../state/appStore.ts'
 
 function formatMeasure(m: MeasureResult): string[] {
   const parts: string[] = []
   if (m.length !== undefined) parts.push(`長 ${m.length.toFixed(1)} mm`)
   if (m.area !== undefined) {
-    parts.push(
-      m.area >= 1e4 ? `面積 ${(m.area / 100).toFixed(1)} cm²` : `面積 ${m.area.toFixed(1)} mm²`,
-    )
+    parts.push(m.area >= 1e4 ? `面積 ${(m.area / 100).toFixed(1)} cm²` : `面積 ${m.area.toFixed(1)} mm²`)
   }
   if (m.volume !== undefined) {
     parts.push(
-      m.volume >= 1e5
-        ? `體積 ${(m.volume / 1000).toFixed(1)} cm³`
-        : `體積 ${m.volume.toFixed(0)} mm³`,
+      m.volume >= 1e5 ? `體積 ${(m.volume / 1000).toFixed(1)} cm³` : `體積 ${m.volume.toFixed(0)} mm³`,
     )
   }
   return parts
 }
 
+type Mode = NonNullable<AppState['toolMode']>
+
 export function ContextBar() {
   const selection = useAppStore((s) => s.selection)
   const toolMode = useAppStore((s) => s.toolMode)
   const setToolMode = useAppStore((s) => s.setToolMode)
-  const sketchActive = useAppStore((s) => s.sketchActive)
   const [measure, setMeasure] = useState<string[]>([])
+
+  const bodyItems = selection.filter(isBodySelection)
 
   useEffect(() => {
     setMeasure([])
-    if (selection.length === 0 || !services.kernel) return
+    const items = selection.filter(isBodySelection)
+    if (items.length === 0 || !services.kernel) return
     let stale = false
     services.kernel
-      .measure(selection)
+      .measure(items)
       .then((m) => !stale && setMeasure(formatMeasure(m)))
       .catch(() => {})
     return () => {
@@ -53,36 +51,43 @@ export function ContextBar() {
     }
   }, [selection])
 
-  if (sketchActive || selection.length === 0) return null
+  if (selection.length === 0) return null
 
-  const bodyIds = new Set(selection.map((i) => i.bodyId))
-  const sameBody = bodyIds.size === 1
-  const hasBody = selection.some((i) => i.kind === 'body')
-  const allEdges = sameBody && selection.every((i) => i.kind === 'edge')
-  const singleFace =
-    sameBody && selection.length === 1 && selection[0].kind === 'face'
+  const kinds = new Set(selection.map((i) => i.kind))
+  const only = (k: string) => kinds.size === 1 && kinds.has(k as never)
+  const sameBody = new Set(bodyItems.map((i) => i.bodyId)).size === 1
 
-  const modes: ModeAction[] = hasBody
-    ? [{ mode: 'move', label: '移動' }]
-    : allEdges
-      ? [
-          { mode: 'fillet', label: '圓角' },
-          { mode: 'chamfer', label: '倒角' },
-        ]
-      : singleFace
-        ? [{ mode: 'shell', label: '抽殼' }]
-        : []
+  const modes: { mode: Mode; label: string }[] = []
+  let hint: string | null = null
+  let canDelete = false
+  let canLookAt = false
+  let canCopy = false
 
-  if (modes.length === 0 && !hasBody && measure.length === 0) return null
+  if (only('region')) {
+    hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）' : null
+    canLookAt = true
+  } else if (only('curve')) {
+    canDelete = true
+    canLookAt = true
+  } else if (only('face') && sameBody) {
+    if (selection.length === 1) {
+      hint = '拖曳藍色箭頭推拉這個面'
+      modes.push({ mode: 'shell', label: '抽殼' })
+    }
+    canLookAt = true
+  } else if (only('edge') && sameBody) {
+    modes.push({ mode: 'fillet', label: '圓角' }, { mode: 'chamfer', label: '倒角' })
+  } else if (only('body')) {
+    if (selection.length === 1) {
+      modes.push({ mode: 'move', label: '移動' })
+      canCopy = true
+    }
+    canDelete = true
+  }
 
-  const hint =
-    toolMode === 'move'
-      ? '拖曳移動（Z 箭頭上下）'
-      : toolMode === 'fillet' || toolMode === 'chamfer'
-        ? '拖曳設定半徑'
-        : toolMode === 'shell'
-          ? '拖曳設定壁厚'
-          : null
+  if (toolMode === 'move') hint = '拖曳彩色箭頭沿 X / Y / Z 移動'
+  else if (toolMode === 'fillet' || toolMode === 'chamfer') hint = '拖曳橘色箭頭設定大小'
+  else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
 
   return (
     <div className="context-bar">
@@ -95,15 +100,23 @@ export function ContextBar() {
           {label}
         </button>
       ))}
-      {hasBody && (
+      {canCopy && (
         <button className="context-button" onClick={() => void copySelectedBody()}>
           複製
         </button>
       )}
-      {hint && <span className="context-hint">{hint}</span>}
-      {measure.length > 0 && (
-        <span className="context-measure">{measure.join('　')}</span>
+      {canLookAt && (
+        <button className="context-button" onClick={() => services.viewport?.lookAtSelection()}>
+          正視
+        </button>
       )}
+      {canDelete && (
+        <button className="context-button context-button-danger" onClick={() => void deleteSelection()}>
+          刪除
+        </button>
+      )}
+      {hint && <span className="context-hint">{hint}</span>}
+      {measure.length > 0 && <span className="context-measure">{measure.join('　')}</span>}
     </div>
   )
 }

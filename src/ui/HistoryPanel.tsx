@@ -14,9 +14,9 @@ export function HistoryPanel() {
   const labels = useAppStore((s) => s.journalLabels)
   const cursor = useAppStore((s) => s.journalCursor)
   const failures = useAppStore((s) => s.journalFailures)
-  const sketchActive = useAppStore((s) => s.sketchActive)
+  const open = useAppStore((s) => s.historyOpen)
 
-  if (labels.length === 0 || sketchActive) return null
+  if (labels.length === 0 || !open) return null
 
   return (
     <div className="history-panel">

@@ -1,5 +1,4 @@
 import {
-  ArrowHelper,
   Box3,
   BufferGeometry,
   Color,
@@ -8,7 +7,6 @@ import {
   HemisphereLight,
   Line,
   LineBasicMaterial,
-  MeshStandardMaterial,
   PerspectiveCamera,
   Plane,
   Raycaster,
@@ -18,11 +16,25 @@ import {
   WebGLRenderer,
 } from 'three'
 import type { JournalOp } from '../doc/journal.ts'
+import { findSketchOnPlane, type SketchEntity } from '../doc/sketches.ts'
 import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
-import { worldToUv, type SketchPlane, type Vec2 } from '../sketch/model.ts'
+import { describeCurves, formatMm } from '../sketch/dimensions.ts'
+import {
+  GROUND_PLANE,
+  worldToUv,
+  type SketchCurve,
+  type SketchPlane,
+  type Vec2,
+} from '../sketch/model.ts'
+import { planeFromNormal } from '../sketch/plane.ts'
 import type { ToolKind } from '../sketch/tools.ts'
-import { useAppStore, type SelectionItem } from '../state/appStore.ts'
+import {
+  isBodySelection,
+  useAppStore,
+  type BodySelection,
+  type SelectionItem,
+} from '../state/appStore.ts'
 import {
   buildBodyObject,
   disposeBodyObject,
@@ -30,12 +42,15 @@ import {
   type BodyObject,
 } from './bodyMesh.ts'
 import { CameraRig } from './CameraRig.ts'
-import { GestureController } from './gestures.ts'
+import { DrawController, type DrawTarget } from './DrawController.ts'
 import { ExtrudePreview } from './ExtrudePreview.ts'
-import { distanceToSegment, dragHeight, type Px } from './extrudeMath.ts'
+import { dragHeight, type Px } from './extrudeMath.ts'
+import { GestureController, type PrimaryRole } from './gestures.ts'
+import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
+import { edgeMidpoint, edgeSnapPoints, faceInfo, faceSubMesh } from './meshGeometry.ts'
 import { edgePickThreshold, findTopoGroup } from './picking.ts'
 import { SelectionHighlighter } from './SelectionHighlighter.ts'
-import { SketchSession, type CommittedSketch } from './SketchSession.ts'
+import { anchorInside, SketchLayer } from './SketchLayer.ts'
 import { ViewCube } from './ViewCube.ts'
 
 const BACKGROUND = 0x141416
@@ -48,71 +63,81 @@ const GRID_EXTENT = 2000
 const MINOR_SPACING = 5
 const MAJOR_SPACING = 25
 
-/** 觸控選 edge 的螢幕容差（px）。 */
-const EDGE_PICK_TOLERANCE_PX = 10
+/** 觸控/筆選取的螢幕容差（px）。 */
+const PICK_TOLERANCE_PX = 10
+
+const AXIS_COLORS = { x: 0xe0655f, y: 0x6fd08c, z: 0x4a8df0 }
+const HANDLE_COLOR = 0x4a8df0
+const PARAM_HANDLE_COLOR = 0xf0b46a
 
 /** 被剖面剪掉的點（three 的慣例：到平面的有號距離為負即被剪掉）。 */
 function isClipped(point: Vector3): boolean {
   return sharedClippingPlanes.some((plane) => plane.distanceToPoint(point) < 0)
 }
+const visiblePoint = (p: Vector3) => !isClipped(p)
+
+/** Viewport 對外需要的文件層操作（由 app 層接上 DocumentController）。 */
+export interface ViewportHost {
+  kernel(): KernelClient | null
+  commit(op: JournalOp): Promise<unknown>
+  /** 以新參數取代最後一筆（拖曳後輸入精確值）。 */
+  amend(op: JournalOp): Promise<unknown>
+  commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind): Promise<void>
+  /** 把最後畫的那條線/圓改成指定長度/半徑。 */
+  resizeLastSketchCurve(value: number): Promise<void>
+  undo(): void
+  redo(): void
+}
+
+/** 拖曳把手進行中的狀態。 */
+interface Manipulation {
+  spec: HandleSpec
+  startPx: Px
+  /** 軸向每 1 世界單位在螢幕上的位移。 */
+  axisPx: Px
+  value: number
+  preview: ExtrudePreview | null
+  build: (value: number) => JournalOp | null
+  label: (value: number) => string
+  /** 圓角/抽殼的 kernel 預覽節流。 */
+  param: { inFlight: boolean; pending: number | null; ghost: BodyObject | null } | null
+  minValue: number
+}
 
 /**
- * 主 3D 視口：renderer、場景（網格、座標軸、光源）、相機 rig、
- * 手勢與 ViewCube 的組裝點。之後的 body mesh、選取高亮都掛在這裡。
+ * 主 3D 視口：renderer、場景、相機、手勢路由、繪圖、把手、選取的組裝點。
+ *
+ * 指標按下時的決策（beginPrimary）：
+ *   1. 按在把手上 → 操作（擠出、推拉、移動、圓角）
+ *   2. 使用草圖工具且這支指標能畫（筆、滑鼠，或尚未偵測到筆時的手指）→ 畫線
+ *   3. 其餘 → 旋轉視角
+ * 輕點一律是選取。
  */
 export class Viewport {
   readonly scene = new Scene()
   readonly camera: PerspectiveCamera
   readonly rig = new CameraRig()
-  /** 幾何變更放手時呼叫（由 app 層接上 DocumentController）。 */
-  opCommitHandler: ((draft: JournalOp) => Promise<unknown>) | null = null
-  /** kernel 存取（app 層在建構後掛上，供預覽用）。 */
-  kernelProvider: (() => KernelClient | null) | null = null
+  host: ViewportHost | null = null
 
   private readonly renderer: WebGLRenderer
   private readonly gestures: GestureController
   private readonly viewCube = new ViewCube()
   private readonly resizeObserver: ResizeObserver
   private readonly bodies = new Map<number, BodyObject>()
+  private readonly meshes = new Map<number, MeshData>()
+  private readonly sketchLayers = new Map<number, SketchLayer>()
   private readonly raycaster = new Raycaster()
   private readonly highlighter: SelectionHighlighter
+  private readonly handles: HandleLayer
+  private readonly draw: DrawController
   private readonly unsubscribeStore: () => void
-  private sketch: SketchSession | null = null
-  private sketchIntersectPlane = new Plane()
-  private kernel: KernelClient | null = null
-  /** 完成草圖後留下的可擠出區域。 */
-  private readonly committedSketches: CommittedSketch[] = []
-  private extrudeDrag: {
-    sketch: CommittedSketch
-    regionId: number
-    startPx: Px
-    axisPx: Px
-    preview: ExtrudePreview
-    height: number
-  } | null = null
-  /** 移動模式的拖曳狀態。 */
-  private moveDrag: {
-    bodyId: number
-    axis: 'xy' | 'z'
-    startHit: Vector3
-    startPx: Px
-    zAxisPx: Px
-    translation: [number, number, number]
-  } | null = null
-  /** 圓角/倒角/抽殼的參數拖曳（kernel 節流預覽）。 */
-  private paramDrag: {
-    mode: 'fillet' | 'chamfer' | 'shell'
-    bodyId: number
-    ids: number[]
-    startPx: Px
-    value: number
-    inFlight: boolean
-    pendingValue: number | null
-    ghost: BodyObject | null
-    active: boolean
-  } | null = null
-  private moveHandle: ArrowHelper | null = null
-  private moveHandleLen = 0
+  private drawing = false
+  private drawPlane = new Plane()
+  private manip: Manipulation | null = null
+  private dimension: { text: string; editable: boolean; value: number; anchor: Vector3 } | null =
+    null
+  private dimensionApply: ((value: number) => Promise<void>) | null = null
+  private lastDimensionPx: Px | null = null
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -134,36 +159,37 @@ export class Viewport {
     this.buildEnvironment()
 
     this.highlighter = new SelectionHighlighter(this.scene)
+    this.handles = new HandleLayer(this.scene)
+    this.draw = new DrawController({
+      scene: this.scene,
+      worldPerPixel: () => this.worldPerPixel(),
+      snapSettings: () => {
+        const s = useAppStore.getState()
+        return { enabled: s.snapEnabled, gridSpacing: s.gridSpacingMm }
+      },
+      commit: (target, curves, tool) => void this.commitStroke(target, curves, tool),
+    })
+
     this.unsubscribeStore = useAppStore.subscribe((state, prev) => {
-      if (state.sectionActive !== prev.sectionActive) {
-        sharedClippingPlanes.length = 0
-        if (state.sectionActive) {
-          // 切在所有 body 的 bbox 中心，移除靠近前視/等角視相機（-Y 側）的那一半，
-          // 剖口才會朝向使用者、看得到內部。保留 y ≥ centerY。
-          let centerY = 0
-          if (this.bodies.size > 0) {
-            const bbox = new Box3()
-            for (const body of this.bodies.values()) bbox.expandByObject(body.group)
-            centerY = (bbox.min.y + bbox.max.y) / 2
-          }
-          sharedClippingPlanes.push(new Plane(new Vector3(0, 1, 0), -centerY))
-        }
+      if (state.sectionActive !== prev.sectionActive) this.updateSection(state.sectionActive)
+      if (state.activeTool !== prev.activeTool) {
+        if (state.activeTool === 'select') this.draw.abort()
+        else this.draw.setTool(state.activeTool)
+        this.draw.hoverEnd()
         this.invalidate()
       }
+      if (state.selection !== prev.selection) this.clearDimension()
       if (
-        state.selection === prev.selection &&
-        state.bodies === prev.bodies &&
-        state.toolMode === prev.toolMode
+        state.selection !== prev.selection ||
+        state.bodies !== prev.bodies ||
+        state.sketches !== prev.sketches ||
+        state.toolMode !== prev.toolMode
       ) {
-        return
+        this.syncVisibility()
+        this.syncHighlights()
+        this.syncHandles()
+        this.invalidate()
       }
-      for (const entry of state.bodies) {
-        const body = this.bodies.get(entry.bodyId)
-        if (body) body.group.visible = entry.visible
-      }
-      this.highlighter.apply(state.selection, this.bodies)
-      this.syncMoveHandle()
-      this.invalidate()
     })
 
     this.gestures = new GestureController({
@@ -180,14 +206,25 @@ export class Viewport {
         this.invalidate()
       },
       tap: (x, y, _type, tapCount) => this.handleTap(x, y, tapCount),
-      drawStart: (x, y) => this.forwardStroke('start', x, y),
-      drawMove: (x, y) => this.forwardStroke('move', x, y),
-      drawEnd: (x, y) => this.forwardStroke('end', x, y),
-      drawCancel: () => this.sketch?.strokeCancel(),
-      beginGrab: (x, y) => this.handleGrabStart(x, y),
-      grabMove: (x, y) => this.handleGrabMove(x, y),
-      grabEnd: () => this.handleGrabEnd(),
-      grabCancel: () => this.handleGrabCancel(),
+      beginPrimary: (x, y, type) => this.beginPrimary(x, y, type),
+      primaryMove: (x, y) => this.primaryMove(x, y),
+      primaryEnd: (x, y) => this.primaryEnd(x, y),
+      primaryCancel: () => this.primaryCancel(),
+      hover: (x, y, type) => this.handleHover(x, y, type),
+      hoverEnd: () => {
+        this.draw.hoverEnd()
+        this.invalidate()
+      },
+      multiTap: (fingers) => {
+        if (fingers === 2) this.host?.undo()
+        else if (fingers === 3) this.host?.redo()
+      },
+      penDetected: () => {
+        const store = useAppStore.getState()
+        if (store.pencilDetected) return
+        store.setPencilDetected()
+        store.showToast('已偵測到 Apple Pencil：用筆畫圖與選取，用手指旋轉、平移、縮放')
+      },
     })
     this.gestures.attach(this.renderer.domElement)
 
@@ -204,30 +241,20 @@ export class Viewport {
   }
 
   /**
-   * 相機矩陣跟上 rig。渲染前與每次指標事件做射線換算前都要呼叫——
-   * 否則換算會用「上一次渲染」的矩陣，在降頻（低電量、背景分頁）或
-   * 手勢剛改過 rig 時對不上手指位置。
-   */
-  private syncCamera(): void {
-    this.rig.position(this.camera.position)
-    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
-    this.camera.updateMatrixWorld()
-  }
-
-  /**
    * 同步渲染並擷取畫面（文件截圖/除錯用）。
    * WebGL drawing buffer 在合成後即失效，render 與 toDataURL 必須同步執行。
    */
   captureImage(): string {
-    this.syncCamera()
-    this.renderer.render(this.scene, this.camera)
-    this.viewCube.render(this.renderer, this.rig, this.width, this.height)
+    this.renderFrame()
     return this.renderer.domElement.toDataURL('image/png')
   }
+
+  // ---- 文件層同步 ----
 
   addBody(bodyId: number, mesh: MeshData): void {
     const body = buildBodyObject(bodyId, mesh)
     this.bodies.set(bodyId, body)
+    this.meshes.set(bodyId, mesh)
     this.scene.add(body.group)
     this.invalidate()
   }
@@ -237,6 +264,7 @@ export class Viewport {
     if (!body) return
     disposeBodyObject(body)
     this.bodies.delete(bodyId)
+    this.meshes.delete(bodyId)
     this.invalidate()
   }
 
@@ -245,521 +273,82 @@ export class Viewport {
     this.removeBody(bodyId)
     this.addBody(bodyId, mesh)
     this.bodies.get(bodyId)!.group.visible = wasVisible
+    this.syncHandles()
   }
 
-  /** 重放/開檔後整批重建場景（清掉既有 body 與可擠出區域）。 */
+  /** 重放/開檔後整批重建場景。 */
   setAllBodies(list: BodyMeshResult[]): void {
+    this.cancelInteraction()
+    this.clearDimension()
     for (const bodyId of [...this.bodies.keys()]) this.removeBody(bodyId)
-    for (const sketch of this.committedSketches) sketch.dispose()
-    this.committedSketches.length = 0
-    this.syncExtrudableCount()
     for (const body of list) this.addBody(body.bodyId, body.mesh)
+    this.syncHandles()
     this.invalidate()
   }
 
-  /**
-   * 宿主 body 被移動或刪除時，畫在它面上的待擠出草圖已失去意義
-   * （區域會留在原地、擠出會長在空中），一併移除。
-   */
-  discardSketchesOnBody(bodyId: number): void {
-    const keep: CommittedSketch[] = []
-    for (const sketch of this.committedSketches) {
-      if (sketch.hostBodyId === bodyId) sketch.dispose()
-      else keep.push(sketch)
+  /** 由 journal 推導的草圖：新增/更新/移除對應的 SketchLayer。 */
+  syncSketches(sketches: Map<number, SketchEntity>): void {
+    for (const [id, layer] of this.sketchLayers) {
+      if (!sketches.has(id)) {
+        layer.dispose()
+        this.sketchLayers.delete(id)
+      }
     }
-    if (keep.length === this.committedSketches.length) return
-    this.committedSketches.splice(0, this.committedSketches.length, ...keep)
-    this.syncExtrudableCount()
-    this.invalidate()
-  }
-
-  /** 進入草圖模式：相機轉正對平面、單指改為繪圖、其餘實體變半透明。 */
-  enterSketch(plane: SketchPlane, kernel: KernelClient, hostBodyId: number | null): void {
-    if (this.sketch) return
-    this.kernel = kernel
-    this.sketch = new SketchSession(plane, hostBodyId, {
-      scene: this.scene,
-      kernel,
-      invalidate: () => this.invalidate(),
-      worldPerPixel: () => this.worldPerPixel(),
-    })
-    this.sketchIntersectPlane.setFromNormalAndCoplanarPoint(
-      new Vector3(...plane.normal),
-      new Vector3(...plane.origin),
-    )
-    this.rig.snapToDirection(plane.normal, plane.yDir)
-    this.gestures.setMode('draw')
-    this.setBodiesDimmed(true)
-    this.invalidate()
-  }
-
-  async exitSketch(commit: boolean): Promise<void> {
-    if (!this.sketch) return
-    const session = this.sketch
-    this.sketch = null
-    this.gestures.setMode('navigate')
-    this.setBodiesDimmed(false)
-    const committed = await session.finish(commit)
-    if (committed) {
-      this.committedSketches.push(committed)
-      // 拉回等角視，避免正對平面時擠出軸在螢幕上退化
-      this.rig.snapTo('iso')
-      this.syncExtrudableCount()
-    }
-    this.invalidate()
-  }
-
-  setSketchTool(kind: ToolKind): void {
-    this.sketch?.setTool(kind)
-  }
-
-  private forwardStroke(phase: 'start' | 'move' | 'end', clientX: number, clientY: number): void {
-    if (!this.sketch) return
-    this.syncCamera()
-    const uv = this.clientToSketchUv(clientX, clientY)
-    if (!uv) return
-    if (phase === 'start') this.sketch.strokeStart(uv)
-    else if (phase === 'move') this.sketch.strokeMove(uv)
-    else this.sketch.strokeEnd(uv)
-  }
-
-  private clientToSketchUv(clientX: number, clientY: number): Vec2 | null {
-    if (!this.sketch) return null
-    const rect = this.container.getBoundingClientRect()
-    const ndc = new Vector2(
-      ((clientX - rect.left) / this.width) * 2 - 1,
-      -(((clientY - rect.top) / this.height) * 2 - 1),
-    )
-    this.raycaster.setFromCamera(ndc, this.camera)
-    const hit = new Vector3()
-    if (!this.raycaster.ray.intersectPlane(this.sketchIntersectPlane, hit)) return null
-    return worldToUv(this.sketch.plane, [hit.x, hit.y, hit.z])
-  }
-
-  private worldPerPixel(): number {
-    return (
-      (2 * this.rig.currentRadius() * Math.tan(((FOV_DEG / 2) * Math.PI) / 180)) /
-      this.height
-    )
-  }
-
-  // ---- grab 路由：依情境工具模式分派 ----
-
-  private handleGrabStart(clientX: number, clientY: number): boolean {
-    if (this.sketch) return false
-    this.syncCamera()
-    const mode = useAppStore.getState().toolMode
-    if (mode === 'move') return this.beginMoveDrag(clientX, clientY)
-    if (mode === 'fillet' || mode === 'chamfer' || mode === 'shell') {
-      return this.beginParamDrag(mode, clientX, clientY)
-    }
-    return this.tryBeginExtrude(clientX, clientY)
-  }
-
-  private handleGrabMove(clientX: number, clientY: number): void {
-    this.syncCamera()
-    if (this.moveDrag) this.updateMoveDrag(clientX, clientY)
-    else if (this.paramDrag) this.updateParamDrag(clientX, clientY)
-    else this.updateExtrude(clientX, clientY)
-  }
-
-  private handleGrabEnd(): void {
-    if (this.moveDrag) void this.commitMoveDrag()
-    else if (this.paramDrag) void this.commitParamDrag()
-    else void this.commitExtrude()
-  }
-
-  private handleGrabCancel(): void {
-    if (this.moveDrag) {
-      this.bodies.get(this.moveDrag.bodyId)?.group.position.set(0, 0, 0)
-      this.moveDrag = null
-      this.invalidate()
-    } else if (this.paramDrag) {
-      this.cleanupParamDrag()
-    } else {
-      this.cancelExtrude()
-    }
-  }
-
-  // ---- 移動模式 ----
-
-  private beginMoveDrag(clientX: number, clientY: number): boolean {
-    const store = useAppStore.getState()
-    const bodySel = store.selection.find((i) => i.kind === 'body')
-    const body = bodySel && this.bodies.get(bodySel.bodyId)
-    if (!bodySel || !body) return false
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-
-    // Z 把手命中：沿 Z 拖曳
-    if (this.moveHandle) {
-      const base = this.worldToLocalPx(this.moveHandle.position)
-      const tipWorld = this.moveHandle.position
-        .clone()
-        .addScaledVector(new Vector3(0, 0, 1), this.moveHandleLen)
-      const tip = this.worldToLocalPx(tipWorld)
-      if (distanceToSegment(local, base, tip) < 28) {
-        const unit = this.worldToLocalPx(
-          this.moveHandle.position.clone().add(new Vector3(0, 0, 1)),
+    for (const [id, entity] of sketches) {
+      const layer = this.sketchLayers.get(id)
+      if (layer) layer.update(entity)
+      else
+        this.sketchLayers.set(
+          id,
+          new SketchLayer(
+            this.scene,
+            entity,
+            async (plane, curves) => {
+              const kernel = this.host?.kernel()
+              if (!kernel) return []
+              const result = await kernel.sketchRegions(plane, curves)
+              return result.regions.map((r) => r.mesh)
+            },
+            () => {
+              this.syncHighlights()
+              this.syncHandles()
+              this.invalidate()
+            },
+          ),
         )
-        this.moveDrag = {
-          bodyId: bodySel.bodyId,
-          axis: 'z',
-          startHit: new Vector3(),
-          startPx: local,
-          zAxisPx: { x: unit.x - base.x, y: unit.y - base.y },
-          translation: [0, 0, 0],
-        }
-        return true
-      }
     }
-
-    // 從 body 本身開始：沿「通過按下點的水平面」拖曳，物體跟著手指走
-    const hit = this.raycastBody(body, local)
-    if (!hit) return false
-    this.moveDrag = {
-      bodyId: bodySel.bodyId,
-      axis: 'xy',
-      startHit: hit,
-      startPx: local,
-      zAxisPx: { x: 0, y: 0 },
-      translation: [0, 0, 0],
-    }
-    return true
-  }
-
-  private updateMoveDrag(clientX: number, clientY: number): void {
-    const drag = this.moveDrag
-    if (!drag) return
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-
-    if (drag.axis === 'z') {
-      const dz = dragHeight(drag.startPx, local, drag.zAxisPx)
-      drag.translation = [0, 0, dz]
-    } else {
-      const ndc = new Vector2(
-        (local.x / this.width) * 2 - 1,
-        -((local.y / this.height) * 2 - 1),
-      )
-      this.raycaster.setFromCamera(ndc, this.camera)
-      const dragPlane = new Plane(new Vector3(0, 0, 1), -drag.startHit.z)
-      const hit = new Vector3()
-      if (!this.raycaster.ray.intersectPlane(dragPlane, hit)) return
-      drag.translation = [hit.x - drag.startHit.x, hit.y - drag.startHit.y, 0]
-    }
-    this.bodies.get(drag.bodyId)?.group.position.set(...drag.translation)
+    this.syncVisibility()
+    this.syncHighlights()
+    this.syncHandles()
     this.invalidate()
   }
 
-  private async commitMoveDrag(): Promise<void> {
-    const drag = this.moveDrag
-    if (!drag) return
-    this.moveDrag = null
-    const body = this.bodies.get(drag.bodyId)
-    body?.group.position.set(0, 0, 0)
-    this.invalidate()
-    const [dx, dy, dz] = drag.translation
-    if (Math.hypot(dx, dy, dz) < 0.5 || !this.opCommitHandler) return
-    try {
-      await this.opCommitHandler({
-        kind: 'transform',
-        bodyId: drag.bodyId,
-        translation: drag.translation,
-      })
-    } catch (e) {
-      console.warn('[move] 移動失敗：', e)
-    }
+  /** 等所有草圖的區域偵測完成。 */
+  async settleSketches(): Promise<void> {
+    await Promise.all([...this.sketchLayers.values()].map((l) => l.settled()))
   }
 
-  // ---- 圓角/倒角/抽殼的參數拖曳（kernel 節流預覽） ----
-
-  private beginParamDrag(
-    mode: 'fillet' | 'chamfer' | 'shell',
-    clientX: number,
-    clientY: number,
-  ): boolean {
-    const store = useAppStore.getState()
-    const wanted = mode === 'shell' ? 'face' : 'edge'
-    const items = store.selection.filter((i) => i.kind === wanted)
-    if (items.length === 0) return false
-    const bodyId = items[0].bodyId
-    const body = this.bodies.get(bodyId)
-    if (!body) return false
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-    if (!this.raycastBody(body, local)) return false
-    this.paramDrag = {
-      mode,
-      bodyId,
-      ids: items.map((i) => i.topoId),
-      startPx: { x: clientX - rect.left, y: clientY - rect.top },
-      value: 0,
-      inFlight: false,
-      pendingValue: null,
-      ghost: null,
-      active: true,
-    }
-    return true
-  }
-
-  private updateParamDrag(clientX: number, clientY: number): void {
-    const drag = this.paramDrag
-    if (!drag) return
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-    const px = Math.hypot(local.x - drag.startPx.x, local.y - drag.startPx.y)
-    drag.value = Math.max(0.1, px * this.worldPerPixel())
-    this.requestParamPreview(drag.value)
-  }
-
-  private requestParamPreview(value: number): void {
-    const drag = this.paramDrag
-    const kernel = this.kernelProvider?.() ?? this.kernel
-    if (!drag || !kernel) return
-    if (drag.inFlight) {
-      drag.pendingValue = value
-      return
-    }
-    drag.inFlight = true
-    kernel
-      .previewOp(this.paramOp(drag, value))
-      .then((body) => {
-        if (!drag.active) return
-        // 換上幽靈體、隱藏本尊
-        const real = this.bodies.get(drag.bodyId)
-        if (real) real.group.visible = false
-        if (drag.ghost) disposeBodyObject(drag.ghost)
-        drag.ghost = buildBodyObject(drag.bodyId, body.mesh)
-        this.scene.add(drag.ghost.group)
-        this.invalidate()
-      })
-      .catch(() => {
-        // 半徑/壁厚超出可行範圍：保留上一個成功的預覽
-      })
-      .finally(() => {
-        drag.inFlight = false
-        if (drag.pendingValue !== null && drag.active) {
-          const next = drag.pendingValue
-          drag.pendingValue = null
-          this.requestParamPreview(next)
-        }
-      })
-  }
-
-  private async commitParamDrag(): Promise<void> {
-    const drag = this.paramDrag
-    if (!drag) return
-    const value = drag.value
-    this.cleanupParamDrag()
-    if (value < 0.1 || !this.opCommitHandler) return
-    try {
-      await this.opCommitHandler(this.paramOp(drag, value))
-    } catch (e) {
-      console.warn(`[${drag.mode}] 操作失敗：`, e)
-    }
-  }
-
-  private cleanupParamDrag(): void {
-    const drag = this.paramDrag
-    if (!drag) return
-    drag.active = false
-    if (drag.ghost) disposeBodyObject(drag.ghost)
-    const body = this.bodies.get(drag.bodyId)
-    if (body) {
-      const entry = useAppStore.getState().bodies.find((b) => b.bodyId === drag.bodyId)
-      body.group.visible = entry?.visible ?? true
-    }
-    this.paramDrag = null
+  /** Esc / 換工具 / 文件變動：放棄進行中的筆劃與拖曳。 */
+  cancelInteraction(): void {
+    this.draw.abort()
+    this.drawing = false
+    if (this.manip) this.endManipulation()
     this.invalidate()
   }
 
-  private paramOp(
-    drag: { mode: 'fillet' | 'chamfer' | 'shell'; bodyId: number; ids: number[] },
-    value: number,
-  ): JournalOp {
-    if (drag.mode === 'shell') {
-      return { kind: 'shell', bodyId: drag.bodyId, faceIds: drag.ids, thickness: value }
-    }
-    return {
-      kind: 'fillet',
-      bodyId: drag.bodyId,
-      edgeIds: drag.ids,
-      radius: value,
-      chamfer: drag.mode === 'chamfer',
-    }
-  }
-
-  /** 移動模式時在選取 body 上方顯示 Z 軸把手。 */
-  private syncMoveHandle(): void {
-    const store = useAppStore.getState()
-    const bodySel = store.selection.find((i) => i.kind === 'body')
-    const body = bodySel && this.bodies.get(bodySel.bodyId)
-    const show = store.toolMode === 'move' && !!body
-
-    if (!show) {
-      if (this.moveHandle) {
-        this.moveHandle.removeFromParent()
-        this.moveHandle.dispose()
-        this.moveHandle = null
-      }
-      return
-    }
-
-    const bbox = new Box3().setFromObject(body!.group)
-    const top = new Vector3(
-      (bbox.min.x + bbox.max.x) / 2,
-      (bbox.min.y + bbox.max.y) / 2,
-      bbox.max.z + 5,
-    )
-    const length = Math.max(40, (bbox.max.z - bbox.min.z) * 0.5)
-    this.moveHandleLen = length
-    if (!this.moveHandle) {
-      this.moveHandle = new ArrowHelper(
-        new Vector3(0, 0, 1),
-        top,
-        length,
-        0x4a8df0,
-        length * 0.3,
-        length * 0.18,
-      )
-      this.scene.add(this.moveHandle)
-    } else {
-      this.moveHandle.position.copy(top)
-      this.moveHandle.setLength(length, length * 0.3, length * 0.18)
-    }
-  }
-
-  // ---- 拖曳擠出 ----
-
-  private tryBeginExtrude(clientX: number, clientY: number): boolean {
-    if (this.sketch || !this.kernel || this.committedSketches.length === 0) return false
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-    const ndc = new Vector2(
-      (local.x / this.width) * 2 - 1,
-      -((local.y / this.height) * 2 - 1),
-    )
-    this.raycaster.setFromCamera(ndc, this.camera)
-
-    const targets = this.committedSketches.flatMap((s) => s.regions.map((r) => r.object))
-    const hit = this.raycaster.intersectObjects(targets, false)[0]
-    if (!hit) return false
-
-    const sketch = this.committedSketches.find((s) =>
-      s.regions.some((r) => r.object === hit.object),
-    )!
-    const region = sketch.regions.find((r) => r.object === hit.object)!
-
-    // 法線方向每 1 世界單位的螢幕位移（px）
-    const origin = new Vector3(...sketch.plane.origin)
-    const tip = origin.clone().add(new Vector3(...sketch.plane.normal))
-    const po = this.worldToLocalPx(origin)
-    const pt = this.worldToLocalPx(tip)
-    const axisPx: Px = { x: pt.x - po.x, y: pt.y - po.y }
-
-    this.extrudeDrag = {
-      sketch,
-      regionId: region.regionId,
-      startPx: local,
-      axisPx,
-      preview: new ExtrudePreview(this.scene, region.meshData, sketch.plane.normal),
-      height: 0,
-    }
-    this.invalidate()
-    return true
-  }
-
-  private updateExtrude(clientX: number, clientY: number): void {
-    const drag = this.extrudeDrag
-    if (!drag) return
-    const rect = this.container.getBoundingClientRect()
-    const local: Px = { x: clientX - rect.left, y: clientY - rect.top }
-    drag.height = dragHeight(drag.startPx, local, drag.axisPx)
-    drag.preview.setHeight(drag.height)
+  /** 把相機轉成正對目前選取的平面（草圖、面），網格軸對齊螢幕。 */
+  lookAtSelection(): void {
+    const plane = this.selectionPlane()
+    if (!plane) return
+    this.rig.snapToDirection(plane.normal, plane.yDir)
     this.invalidate()
   }
 
-  private async commitExtrude(): Promise<void> {
-    const drag = this.extrudeDrag
-    if (!drag) return
-    this.extrudeDrag = null
-    drag.preview.dispose()
-    this.invalidate()
-    if (Math.abs(drag.height) < 0.5 || !this.opCommitHandler) return
-
-    try {
-      // body 的建立/更新由 DocumentController 統一處理（journal + store + 場景）
-      await this.opCommitHandler({
-        kind: 'extrude',
-        plane: drag.sketch.plane,
-        curves: drag.sketch.curves,
-        regionIndex: drag.regionId - 1,
-        height: drag.height,
-        hostBodyId: drag.sketch.hostBodyId,
-        newBodyId: null,
-        name: null,
-      })
-
-      drag.sketch.consumeRegion(drag.regionId)
-      drag.sketch.regions = drag.sketch.regions.filter(
-        (r) => r.regionId !== drag.regionId,
-      )
-      if (drag.sketch.regions.length === 0) {
-        drag.sketch.dispose()
-        const i = this.committedSketches.indexOf(drag.sketch)
-        if (i >= 0) this.committedSketches.splice(i, 1)
-      }
-      this.syncExtrudableCount()
-    } catch (e) {
-      console.warn('[extrude] 擠出失敗：', e)
-    }
-    this.invalidate()
-  }
-
-  private cancelExtrude(): void {
-    if (!this.extrudeDrag) return
-    this.extrudeDrag.preview.dispose()
-    this.extrudeDrag = null
-    this.invalidate()
-  }
-
-  /** 螢幕點是否落在某 body 的可見部分上；回傳命中的世界座標。 */
-  private raycastBody(body: BodyObject, local: Px): Vector3 | null {
-    if (!body.group.visible) return null
-    const ndc = new Vector2(
-      (local.x / this.width) * 2 - 1,
-      -((local.y / this.height) * 2 - 1),
-    )
-    this.raycaster.setFromCamera(ndc, this.camera)
-    const hit = this.raycaster
-      .intersectObject(body.surface, false)
-      .find((h) => !isClipped(h.point))
-    return hit ? hit.point.clone() : null
-  }
-
-  private worldToLocalPx(world: Vector3): Px {
-    const ndc = world.clone().project(this.camera)
-    return {
-      x: ((ndc.x + 1) / 2) * this.width,
-      y: ((1 - ndc.y) / 2) * this.height,
-    }
-  }
-
-  private syncExtrudableCount(): void {
-    const count = this.committedSketches.reduce((n, s) => n + s.regions.length, 0)
-    useAppStore.getState().setExtrudableRegionCount(count)
-  }
-
-  private setBodiesDimmed(dimmed: boolean): void {
-    for (const body of this.bodies.values()) {
-      const material = body.surface.material as MeshStandardMaterial
-      material.transparent = dimmed
-      material.opacity = dimmed ? 0.35 : 1
-      material.needsUpdate = true
-      ;(body.edges.material as LineBasicMaterial).transparent = dimmed
-      ;(body.edges.material as LineBasicMaterial).opacity = dimmed ? 0.4 : 1
-    }
+  /** 尺寸標籤上輸入了精確值。 */
+  async applyDimensionValue(value: number): Promise<void> {
+    const apply = this.dimensionApply
+    this.clearDimension()
+    if (apply) await apply(value)
   }
 
   dispose(): void {
@@ -767,9 +356,704 @@ export class Viewport {
     cancelAnimationFrame(this.rafHandle)
     this.resizeObserver.disconnect()
     this.gestures.dispose()
+    for (const layer of this.sketchLayers.values()) layer.dispose()
+    this.handles.clear()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }
+
+  // ---- 指標路由 ----
+
+  private beginPrimary(clientX: number, clientY: number, type: string): PrimaryRole {
+    this.syncCamera()
+    const local = this.toLocal(clientX, clientY)
+    if (this.viewCube.pick(local.x, local.y, this.width)) return 'none'
+
+    const handle = this.handles.hitTest(
+      local,
+      (p) => this.worldToLocalPx(p),
+      (p) => this.worldPerPixelAt(p),
+    )
+    if (handle && this.beginManipulation(handle, local)) return 'manipulate'
+
+    const store = useAppStore.getState()
+    const canDraw =
+      store.activeTool !== 'select' &&
+      (type === 'pen' || type === 'mouse' || (type === 'touch' && !store.pencilDetected))
+    if (canDraw) {
+      const target = this.drawTargetAt(local)
+      if (target === 'nonplanar') {
+        store.showToast('曲面上不能畫草圖——請在平面或地面上畫')
+        return 'none'
+      }
+      if (!target) return 'none'
+      const uv = this.planeUv(local, target.plane)
+      if (!uv) return 'none'
+      this.clearDimension()
+      this.draw.begin(target, uv)
+      this.drawing = true
+      this.updateDrawDimension()
+      this.invalidate()
+      return 'draw'
+    }
+    return 'orbit'
+  }
+
+  private primaryMove(clientX: number, clientY: number): void {
+    this.syncCamera()
+    const local = this.toLocal(clientX, clientY)
+    if (this.manip) {
+      this.updateManipulation(local)
+    } else if (this.drawing) {
+      const target = this.draw.pendingTarget()
+      const uv = target && this.planeUv(local, target.plane)
+      if (uv) this.draw.move(uv)
+      this.updateDrawDimension()
+    }
+    this.invalidate()
+  }
+
+  private primaryEnd(clientX: number, clientY: number): void {
+    this.syncCamera()
+    const local = this.toLocal(clientX, clientY)
+    if (this.manip) {
+      void this.commitManipulation()
+    } else if (this.drawing) {
+      const target = this.draw.pendingTarget()
+      const uv = target && this.planeUv(local, target.plane)
+      if (uv) this.draw.end(uv)
+      else this.draw.cancel()
+      this.drawing = false
+      if (!this.dimensionApply) this.clearDimension()
+    }
+    this.invalidate()
+  }
+
+  private primaryCancel(): void {
+    if (this.manip) this.endManipulation()
+    if (this.drawing) {
+      this.draw.cancel()
+      this.drawing = false
+      this.clearDimension()
+    }
+    this.invalidate()
+  }
+
+  private handleHover(clientX: number, clientY: number, type: string): void {
+    const store = useAppStore.getState()
+    if (store.activeTool === 'select' || (type !== 'pen' && type !== 'mouse')) return
+    this.syncCamera()
+    const local = this.toLocal(clientX, clientY)
+    const target = this.drawTargetAt(local)
+    if (!target || target === 'nonplanar') {
+      this.draw.hover(null, null)
+    } else {
+      this.draw.hover(target, this.planeUv(local, target.plane))
+    }
+    this.invalidate()
+  }
+
+  // ---- 繪圖 ----
+
+  /**
+   * 這一筆畫在哪：進行中的圓弧沿用原平面 → 既有草圖區域 → 模型平面 → 地面。
+   * 落在曲面上回傳 'nonplanar'。
+   */
+  private drawTargetAt(local: Px): DrawTarget | 'nonplanar' | null {
+    const pending = this.draw.pendingTarget()
+    if (pending) return pending
+
+    this.setRay(local)
+    let best: { plane: SketchPlane; host: number | null; distance: number } | null = null
+
+    for (const layer of this.sketchLayers.values()) {
+      const hit = layer.pickRegion(this.raycaster, visiblePoint)
+      if (hit && (!best || hit.distance < best.distance)) {
+        best = { plane: layer.entity.plane, host: layer.entity.hostBodyId, distance: hit.distance }
+      }
+    }
+
+    const faceHit = this.raycaster
+      .intersectObjects(this.visibleBodies().map((b) => b.surface), false)
+      .find((h) => visiblePoint(h.point))
+    if (faceHit && faceHit.faceIndex != null && (!best || faceHit.distance < best.distance - 1e-3)) {
+      const body = this.visibleBodies().find((b) => b.surface === faceHit.object)!
+      const mesh = this.meshes.get(body.bodyId)!
+      const group = findTopoGroup(body.faceGroups, faceHit.faceIndex * 3)
+      if (!group) return null
+      const info = faceInfo(mesh, group)
+      if (!info.planar) return 'nonplanar'
+      best = {
+        plane: planeFromNormal(info.normal, [faceHit.point.x, faceHit.point.y, faceHit.point.z]),
+        host: body.bodyId,
+        distance: faceHit.distance,
+      }
+    }
+
+    if (!best) {
+      const ground = new Plane(new Vector3(0, 0, 1), 0)
+      const hit = new Vector3()
+      if (!this.raycaster.ray.intersectPlane(ground, hit)) return null
+      best = { plane: GROUND_PLANE, host: null, distance: 0 }
+    }
+
+    const entities = new Map([...this.sketchLayers].map(([id, l]) => [id, l.entity]))
+    const existing = findSketchOnPlane(entities, best.plane, best.host)
+    const plane = existing?.plane ?? best.plane
+    return {
+      plane,
+      hostBodyId: best.host,
+      existingCurves: existing?.curves ?? [],
+      extraPoints: this.modelSnapPoints(plane),
+    }
+  }
+
+  /** 模型上剛好落在此平面的頂點與直線邊中點（在方塊頂面畫圖時吸附角點）。 */
+  private modelSnapPoints(plane: SketchPlane): { endpoints: Vec2[]; midpoints: Vec2[] } {
+    const n = new Vector3(...plane.normal)
+    const o = new Vector3(...plane.origin)
+    const onPlane = (p: [number, number, number]) =>
+      Math.abs(new Vector3(...p).sub(o).dot(n)) < 1e-3
+    const endpoints: Vec2[] = []
+    const midpoints: Vec2[] = []
+    for (const body of this.visibleBodies()) {
+      const pts = edgeSnapPoints(this.meshes.get(body.bodyId)!)
+      for (const p of pts.endpoints) if (onPlane(p)) endpoints.push(worldToUv(plane, p))
+      for (const p of pts.midpoints) if (onPlane(p)) midpoints.push(worldToUv(plane, p))
+    }
+    return { endpoints, midpoints }
+  }
+
+  private async commitStroke(target: DrawTarget, curves: SketchCurve[], tool: ToolKind): Promise<void> {
+    if (!this.host) return
+    const dim = describeCurves(curves, tool)
+    try {
+      await this.host.commitSketch(target.plane, target.hostBodyId, curves, tool)
+    } catch (e) {
+      console.warn('[sketch] 提交失敗：', e)
+      return
+    }
+    // 剛畫完的直線/圓：尺寸標籤可點擊輸入精確值
+    if (dim?.editable && !this.drawing) {
+      const anchor = new Vector3(...planeAnchor(target.plane, dim.anchor))
+      this.setDimension(dim.text, anchor, dim.value, (v) => this.host!.resizeLastSketchCurve(v))
+    }
+  }
+
+  private updateDrawDimension(): void {
+    const dim = this.draw.dimension()
+    if (dim) this.setDimension(dim.text, dim.world, dim.value, null)
+    else this.clearDimension()
+  }
+
+  // ---- 把手操作 ----
+
+  private beginManipulation(spec: HandleSpec, local: Px): boolean {
+    const action = spec.action
+    let manip: Omit<Manipulation, 'spec' | 'startPx' | 'axisPx' | 'value'> | null = null
+
+    switch (action.kind) {
+      case 'extrudeRegion': {
+        const layer = this.sketchLayers.get(action.sketchId)
+        const region = layer?.region(action.regionIndex)
+        if (!layer || !region) return false
+        const { plane, curves, hostBodyId } = layer.entity
+        manip = {
+          preview: new ExtrudePreview(this.scene, region.mesh, plane.normal, hostBodyId !== null),
+          build: (height) =>
+            Math.abs(height) < 0.5
+              ? null
+              : {
+                  kind: 'extrude',
+                  plane,
+                  curves,
+                  regionIndex: region.regionIndex,
+                  height,
+                  hostBodyId,
+                  newBodyId: null,
+                  name: null,
+                  sketchId: action.sketchId,
+                  regionKey: region.key,
+                },
+          label: formatSigned,
+          param: null,
+          minValue: -Infinity,
+        }
+        break
+      }
+      case 'pushPull': {
+        const mesh = this.meshes.get(action.bodyId)
+        const body = this.bodies.get(action.bodyId)
+        const group = body?.faceGroups.find((g) => g.topoId === action.faceId)
+        if (!mesh || !group) return false
+        manip = {
+          preview: new ExtrudePreview(
+            this.scene,
+            faceSubMesh(mesh, group),
+            [spec.dir.x, spec.dir.y, spec.dir.z],
+            true,
+          ),
+          build: (distance) =>
+            Math.abs(distance) < 0.5
+              ? null
+              : { kind: 'pushPull', bodyId: action.bodyId, faceId: action.faceId, distance },
+          label: formatSigned,
+          param: null,
+          minValue: -Infinity,
+        }
+        break
+      }
+      case 'moveAxis': {
+        const dir = spec.dir.clone()
+        manip = {
+          preview: null,
+          build: (d) =>
+            Math.abs(d) < 0.5
+              ? null
+              : {
+                  kind: 'transform',
+                  bodyId: action.bodyId,
+                  translation: [dir.x * d, dir.y * d, dir.z * d],
+                },
+          label: formatSigned,
+          param: null,
+          minValue: -Infinity,
+        }
+        break
+      }
+      case 'param': {
+        const { mode, bodyId, ids } = action
+        manip = {
+          preview: null,
+          build: (v) =>
+            v < 0.1
+              ? null
+              : mode === 'shell'
+                ? { kind: 'shell', bodyId, faceIds: ids, thickness: v }
+                : { kind: 'fillet', bodyId, edgeIds: ids, radius: v, chamfer: mode === 'chamfer' },
+          label: (v) => (mode === 'shell' ? `壁厚 ${formatMm(v)}` : `R ${formatMm(v)}`),
+          param: { inFlight: false, pending: null, ghost: null },
+          minValue: 0.1,
+        }
+        break
+      }
+    }
+
+    const po = this.worldToLocalPx(spec.origin)
+    const pt = this.worldToLocalPx(spec.origin.clone().add(spec.dir))
+    this.manip = {
+      ...manip,
+      spec,
+      startPx: local,
+      axisPx: { x: pt.x - po.x, y: pt.y - po.y },
+      value: 0,
+    }
+    this.clearDimension()
+    this.handles.setActive(spec.id)
+    return true
+  }
+
+  private updateManipulation(local: Px): void {
+    const m = this.manip
+    if (!m) return
+    const raw = dragHeight(m.startPx, local, m.axisPx)
+    // 開吸附時以 1mm 為級距，數字乾淨（Shapr3D 拖曳時的手感）
+    const step = useAppStore.getState().snapEnabled ? 1 : 0.1
+    m.value = Math.max(m.minValue, Math.round(raw / step) * step)
+
+    m.preview?.setHeight(m.value)
+    if (m.spec.action.kind === 'moveAxis') {
+      this.bodies.get(m.spec.action.bodyId)?.group.position.copy(m.spec.dir).multiplyScalar(m.value)
+    }
+    if (m.param) this.requestParamPreview(m, m.value)
+    this.handles.setOffset(m.spec.id, m.spec.action.kind === 'param' ? 0 : m.value)
+    this.setDimension(m.label(m.value), this.manipAnchor(m), m.value, null)
+  }
+
+  private async commitManipulation(): Promise<void> {
+    const m = this.manip
+    if (!m) return
+    const value = m.value
+    const anchor = this.manipAnchor(m)
+    this.endManipulation()
+    const op = m.build(value)
+    if (!op || !this.host) return
+    try {
+      await this.host.commit(op)
+    } catch (e) {
+      useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
+    if (m.spec.action.kind === 'extrudeRegion') useAppStore.getState().clearSelection()
+    // 放開後尺寸仍可點：輸入精確值就以新參數取代這一步
+    this.setDimension(m.label(value), anchor, value, async (v) => {
+      const amended = m.build(m.minValue > 0 ? Math.max(m.minValue, v) : v)
+      if (amended && this.host) {
+        try {
+          await this.host.amend(amended)
+        } catch (e) {
+          useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    })
+  }
+
+  private endManipulation(): void {
+    const m = this.manip
+    if (!m) return
+    this.manip = null
+    m.preview?.dispose()
+    if (m.spec.action.kind === 'moveAxis') {
+      this.bodies.get(m.spec.action.bodyId)?.group.position.set(0, 0, 0)
+    }
+    if (m.param) {
+      if (m.param.ghost) disposeBodyObject(m.param.ghost)
+      m.param.pending = null
+      const action = m.spec.action
+      if (action.kind === 'param') this.syncVisibility()
+    }
+    this.handles.setOffset(m.spec.id, 0)
+    this.handles.setActive(null)
+    this.invalidate()
+  }
+
+  private requestParamPreview(m: Manipulation, value: number): void {
+    const kernel = this.host?.kernel()
+    const param = m.param
+    if (!kernel || !param || m.spec.action.kind !== 'param') return
+    if (param.inFlight) {
+      param.pending = value
+      return
+    }
+    const op = m.build(value)
+    if (!op) return
+    const bodyId = m.spec.action.bodyId
+    param.inFlight = true
+    kernel
+      .previewOp(op)
+      .then((body) => {
+        if (this.manip !== m) return
+        const real = this.bodies.get(bodyId)
+        if (real) real.group.visible = false
+        if (param.ghost) disposeBodyObject(param.ghost)
+        param.ghost = buildBodyObject(bodyId, body.mesh)
+        this.scene.add(param.ghost.group)
+        this.invalidate()
+      })
+      .catch(() => {
+        // 半徑/壁厚超出可行範圍：保留上一個成功的預覽
+      })
+      .finally(() => {
+        param.inFlight = false
+        if (param.pending !== null && this.manip === m) {
+          const next = param.pending
+          param.pending = null
+          this.requestParamPreview(m, next)
+        }
+      })
+  }
+
+  private manipAnchor(m: Manipulation): Vector3 {
+    const offset = m.spec.action.kind === 'param' ? 0 : m.value
+    const tip = m.spec.origin.clone().addScaledVector(m.spec.dir, offset)
+    return tip.addScaledVector(m.spec.dir, 80 * this.worldPerPixelAt(tip))
+  }
+
+  /** 依選取與情境模式決定要顯示哪些把手。 */
+  private syncHandles(): void {
+    const specs = this.manip ? this.handles.specs() : this.computeHandles()
+    if (!this.manip) this.handles.set(specs)
+    this.invalidate()
+  }
+
+  private computeHandles(): HandleSpec[] {
+    const { selection, toolMode } = useAppStore.getState()
+    const bodyItems = selection.filter(isBodySelection)
+
+    if (toolMode === 'move') {
+      const body = bodyItems.find((i) => i.kind === 'body')
+      const obj = body && this.bodies.get(body.bodyId)
+      if (!body || !obj) return []
+      const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
+      return (['x', 'y', 'z'] as const).map((axis) => ({
+        id: `move-${axis}`,
+        origin: center,
+        dir: new Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0),
+        color: AXIS_COLORS[axis],
+        action: { kind: 'moveAxis', bodyId: body.bodyId },
+      }))
+    }
+
+    if (toolMode === 'fillet' || toolMode === 'chamfer') {
+      const edges = bodyItems.filter((i) => i.kind === 'edge')
+      const first = edges[0]
+      const mesh = first && this.meshes.get(first.bodyId)
+      const obj = first && this.bodies.get(first.bodyId)
+      const group = obj?.edgeGroups.find((g) => g.topoId === first.topoId)
+      if (!first || !mesh || !obj || !group) return []
+      const mid = new Vector3(...edgeMidpoint(mesh, group))
+      const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
+      const dir = mid.clone().sub(center).normalize()
+      return [
+        {
+          id: 'param',
+          origin: mid,
+          dir: dir.lengthSq() > 0 ? dir : new Vector3(0, 0, 1),
+          color: PARAM_HANDLE_COLOR,
+          action: { kind: 'param', mode: toolMode, bodyId: first.bodyId, ids: edges.map((e) => e.topoId) },
+        },
+      ]
+    }
+
+    if (toolMode === 'shell') {
+      const face = bodyItems.find((i) => i.kind === 'face')
+      const placed = face && this.facePlacement(face)
+      if (!face || !placed) return []
+      return [
+        {
+          id: 'param',
+          origin: placed.origin,
+          dir: placed.normal.clone().negate(),
+          color: PARAM_HANDLE_COLOR,
+          action: { kind: 'param', mode: 'shell', bodyId: face.bodyId, ids: [face.topoId] },
+        },
+      ]
+    }
+
+    if (selection.length !== 1) return []
+    const item = selection[0]
+    if (item.kind === 'region') {
+      const layer = this.sketchLayers.get(item.sketchId)
+      const region = layer?.visible ? layer.region(item.regionIndex) : undefined
+      if (!layer || !region) return []
+      return [
+        {
+          id: 'extrude',
+          origin: region.centroid.clone(),
+          dir: new Vector3(...layer.entity.plane.normal),
+          color: HANDLE_COLOR,
+          action: { kind: 'extrudeRegion', sketchId: item.sketchId, regionIndex: item.regionIndex },
+        },
+      ]
+    }
+    if (item.kind === 'face') {
+      const placed = this.facePlacement(item)
+      if (!placed?.planar) return []
+      return [
+        {
+          id: 'pushPull',
+          origin: placed.origin,
+          dir: placed.normal,
+          color: HANDLE_COLOR,
+          action: { kind: 'pushPull', bodyId: item.bodyId, faceId: item.topoId },
+        },
+      ]
+    }
+    return []
+  }
+
+  private facePlacement(
+    item: BodySelection,
+  ): { origin: Vector3; normal: Vector3; planar: boolean } | null {
+    const mesh = this.meshes.get(item.bodyId)
+    const obj = this.bodies.get(item.bodyId)
+    const group = obj?.faceGroups.find((g) => g.topoId === item.topoId)
+    if (!mesh || !obj || !obj.group.visible || !group) return null
+    const info = faceInfo(mesh, group)
+    return {
+      origin: anchorInside(faceSubMesh(mesh, group)),
+      normal: new Vector3(...info.normal),
+      planar: info.planar,
+    }
+  }
+
+  // ---- 選取 ----
+
+  private handleTap(clientX: number, clientY: number, tapCount: number): void {
+    this.syncCamera()
+    const local = this.toLocal(clientX, clientY)
+    const orientation = this.viewCube.pick(local.x, local.y, this.width)
+    if (orientation) {
+      this.rig.snapTo(orientation)
+      this.invalidate()
+      return
+    }
+    const store = useAppStore.getState()
+    const item = this.pickAt(local)
+    if (!item) {
+      store.clearSelection()
+      return
+    }
+    if (tapCount >= 2) {
+      // 雙擊：選整個主體 / 整張草圖
+      if (isBodySelection(item)) {
+        store.replaceSelection([{ bodyId: item.bodyId, kind: 'body', topoId: 0 }])
+      } else {
+        const layer = this.sketchLayers.get(item.sketchId)
+        if (layer) {
+          store.replaceSelection(
+            layer.entity.curves.map((c) => ({ kind: 'curve', sketchId: item.sketchId, curveId: c.id })),
+          )
+        }
+      }
+      return
+    }
+    store.toggleSelection(item)
+  }
+
+  /** 選取優先序：草圖線 > 草圖區域 > 模型邊 > 模型面（邊/線有螢幕容差，好點中）。 */
+  private pickAt(local: Px): SelectionItem | null {
+    this.setRay(local)
+    const threshold = edgePickThreshold(
+      PICK_TOLERANCE_PX,
+      this.camera.position.distanceTo(this.rig.currentTarget(new Vector3())),
+      FOV_DEG,
+      this.height,
+    )
+    this.raycaster.params.Line.threshold = threshold
+
+    for (const [sketchId, layer] of this.sketchLayers) {
+      const hit = layer.pickCurve(this.raycaster, visiblePoint)
+      if (hit) return { kind: 'curve', sketchId, curveId: hit.curveId }
+    }
+
+    const bodies = this.visibleBodies()
+    const faceHit = this.raycaster
+      .intersectObjects(bodies.map((b) => b.surface), false)
+      .find((h) => visiblePoint(h.point))
+    const edgeHit = this.raycaster
+      .intersectObjects(bodies.map((b) => b.edges), false)
+      .find((h) => visiblePoint(h.point))
+
+    let regionHit: { sketchId: number; regionIndex: number; distance: number } | null = null
+    for (const [sketchId, layer] of this.sketchLayers) {
+      const hit = layer.pickRegion(this.raycaster, visiblePoint)
+      if (hit && (!regionHit || hit.distance < regionHit.distance)) {
+        regionHit = { sketchId, regionIndex: hit.region.regionIndex, distance: hit.distance }
+      }
+    }
+    // 畫在面上的區域與面共平面：只要沒被更近的面擋住就選區域
+    if (regionHit && (!faceHit || regionHit.distance <= faceHit.distance + threshold)) {
+      return { kind: 'region', sketchId: regionHit.sketchId, regionIndex: regionHit.regionIndex }
+    }
+
+    if (edgeHit && edgeHit.index !== undefined && (!faceHit || edgeHit.distance <= faceHit.distance + threshold * 2)) {
+      const body = bodies.find((b) => b.edges === edgeHit.object)
+      const group = body && findTopoGroup(body.edgeGroups, edgeHit.index)
+      if (body && group) return { bodyId: body.bodyId, kind: 'edge', topoId: group.topoId }
+    }
+    if (faceHit && faceHit.faceIndex != null) {
+      const body = bodies.find((b) => b.surface === faceHit.object)
+      const group = body && findTopoGroup(body.faceGroups, faceHit.faceIndex * 3)
+      if (body && group) return { bodyId: body.bodyId, kind: 'face', topoId: group.topoId }
+    }
+    return null
+  }
+
+  private selectionPlane(): SketchPlane | null {
+    const { selection } = useAppStore.getState()
+    for (const item of selection) {
+      if (item.kind === 'curve' || item.kind === 'region') {
+        const layer = this.sketchLayers.get(item.sketchId)
+        if (layer) return layer.entity.plane
+      } else if (item.kind === 'face') {
+        const placed = this.facePlacement(item)
+        if (placed?.planar) {
+          const o = placed.origin
+          return planeFromNormal([placed.normal.x, placed.normal.y, placed.normal.z], [o.x, o.y, o.z])
+        }
+      }
+    }
+    return null
+  }
+
+  // ---- 畫面同步 ----
+
+  private syncVisibility(): void {
+    const { bodies, sketches } = useAppStore.getState()
+    for (const entry of bodies) {
+      const body = this.bodies.get(entry.bodyId)
+      if (body) body.group.visible = entry.visible
+    }
+    for (const entry of sketches) this.sketchLayers.get(entry.sketchId)?.setVisible(entry.visible)
+  }
+
+  private syncHighlights(): void {
+    const { selection } = useAppStore.getState()
+    this.highlighter.apply(selection.filter(isBodySelection), this.bodies)
+    for (const [sketchId, layer] of this.sketchLayers) {
+      const curves = new Set<number>()
+      const regions = new Set<number>()
+      for (const item of selection) {
+        if (item.kind === 'curve' && item.sketchId === sketchId) curves.add(item.curveId)
+        if (item.kind === 'region' && item.sketchId === sketchId) regions.add(item.regionIndex)
+      }
+      layer.setHighlight(curves, regions)
+    }
+  }
+
+  private updateSection(active: boolean): void {
+    sharedClippingPlanes.length = 0
+    if (active) {
+      // 切在所有 body 的 bbox 中心，移除靠近前視/等角視相機（-Y 側）的那一半，
+      // 剖口才會朝向使用者、看得到內部。保留 y ≥ centerY。
+      let centerY = 0
+      if (this.bodies.size > 0) {
+        const bbox = new Box3()
+        for (const body of this.bodies.values()) bbox.expandByObject(body.group)
+        centerY = (bbox.min.y + bbox.max.y) / 2
+      }
+      sharedClippingPlanes.push(new Plane(new Vector3(0, 1, 0), -centerY))
+    }
+    this.invalidate()
+  }
+
+  // ---- 尺寸標籤（世界錨點，每幀投影到螢幕） ----
+
+  private setDimension(
+    text: string,
+    anchor: Vector3,
+    value: number,
+    apply: ((value: number) => Promise<void>) | null,
+  ): void {
+    this.dimension = { text, editable: apply !== null, value, anchor }
+    this.dimensionApply = apply
+    this.lastDimensionPx = null
+    this.invalidate()
+  }
+
+  private clearDimension(): void {
+    if (!this.dimension && !this.dimensionApply) return
+    this.dimension = null
+    this.dimensionApply = null
+    this.lastDimensionPx = null
+    useAppStore.getState().setDimension(null)
+  }
+
+  private publishDimension(): void {
+    if (!this.dimension) return
+    const px = this.worldToLocalPx(this.dimension.anchor)
+    const last = this.lastDimensionPx
+    const current = useAppStore.getState().dimension
+    if (
+      last &&
+      Math.abs(last.x - px.x) < 0.5 &&
+      Math.abs(last.y - px.y) < 0.5 &&
+      current?.text === this.dimension.text
+    ) {
+      return
+    }
+    this.lastDimensionPx = px
+    useAppStore.getState().setDimension({
+      text: this.dimension.text,
+      editable: this.dimension.editable,
+      value: this.dimension.value,
+      x: px.x,
+      y: px.y,
+    })
+  }
+
+  // ---- 渲染 ----
 
   private readonly frame = (time: number) => {
     this.rafHandle = requestAnimationFrame(this.frame)
@@ -779,82 +1063,69 @@ export class Viewport {
     const animating = this.rig.update(dt)
     if (!animating && !this.needsRender) return
     this.needsRender = false
+    this.renderFrame()
+  }
 
+  private renderFrame(): void {
     this.syncCamera()
+    this.handles.update((p) => this.worldPerPixelAt(p))
+    this.publishDimension()
     this.renderer.render(this.scene, this.camera)
     this.viewCube.render(this.renderer, this.rig, this.width, this.height)
   }
 
-  private handleTap(clientX: number, clientY: number, tapCount: number): void {
-    // 手勢回報的是 client 座標，轉成視口內座標再交給 ViewCube。
-    const rect = this.container.getBoundingClientRect()
-    const x = clientX - rect.left
-    const y = clientY - rect.top
-    if (this.sketch) return // 草圖模式：tap 由筆劃事件涵蓋，不做選取/視角切換
-    this.syncCamera()
-    const orientation = this.viewCube.pick(x, y, this.width)
-    if (orientation) {
-      this.rig.snapTo(orientation)
-      this.invalidate()
-      return
-    }
-    this.pickAt(x, y, tapCount)
+  /**
+   * 相機矩陣跟上 rig。渲染前與每次指標事件做射線換算前都要呼叫——
+   * 否則換算會用「上一次渲染」的矩陣，在降頻或手勢剛改過 rig 時對不上手指位置。
+   */
+  private syncCamera(): void {
+    this.rig.position(this.camera.position)
+    this.camera.lookAt(this.rig.currentTarget(new Vector3()))
+    this.camera.updateMatrixWorld()
   }
 
-  /** face/edge/body 三級選取：單擊 face/edge（edge 有螢幕容差優先），雙擊整個 body。 */
-  private pickAt(x: number, y: number, tapCount: number): void {
-    const store = useAppStore.getState()
-    const ndc = new Vector2((x / this.width) * 2 - 1, -((y / this.height) * 2 - 1))
+  // ---- 幾何工具 ----
+
+  private visibleBodies(): BodyObject[] {
+    return [...this.bodies.values()].filter((b) => b.group.visible)
+  }
+
+  private toLocal(clientX: number, clientY: number): Px {
+    const rect = this.container.getBoundingClientRect()
+    return { x: clientX - rect.left, y: clientY - rect.top }
+  }
+
+  private setRay(local: Px): void {
+    const ndc = new Vector2((local.x / this.width) * 2 - 1, -((local.y / this.height) * 2 - 1))
     this.raycaster.setFromCamera(ndc, this.camera)
+  }
 
-    const cameraDistance = this.camera.position.distanceTo(
-      this.rig.currentTarget(new Vector3()),
+  /** 螢幕點投到平面上的 uv；射線與平面平行或在相機後方時回傳 null。 */
+  private planeUv(local: Px, plane: SketchPlane): Vec2 | null {
+    this.setRay(local)
+    this.drawPlane.setFromNormalAndCoplanarPoint(
+      new Vector3(...plane.normal),
+      new Vector3(...plane.origin),
     )
-    const threshold = edgePickThreshold(
-      EDGE_PICK_TOLERANCE_PX,
-      cameraDistance,
-      FOV_DEG,
-      this.height,
-    )
-    this.raycaster.params.Line.threshold = threshold
+    const hit = new Vector3()
+    if (!this.raycaster.ray.intersectPlane(this.drawPlane, hit)) return null
+    return worldToUv(plane, [hit.x, hit.y, hit.z])
+  }
 
-    const visibleBodies = [...this.bodies.values()].filter((b) => b.group.visible)
-    const faceHit = this.raycaster
-      .intersectObjects(
-        visibleBodies.map((b) => b.surface),
-        false,
-      )
-      .find((h) => !isClipped(h.point))
-    const edgeHit = this.raycaster
-      .intersectObjects(
-        visibleBodies.map((b) => b.edges),
-        false,
-      )
-      .find((h) => !isClipped(h.point))
+  private worldPerPixel(): number {
+    return (2 * this.rig.currentRadius() * Math.tan(((FOV_DEG / 2) * Math.PI) / 180)) / this.height
+  }
 
-    // edge 疊在 face 表面上，允許在容差內比 face 略遠仍然勝出。
-    const preferEdge =
-      edgeHit && (!faceHit || edgeHit.distance <= faceHit.distance + threshold * 2)
+  private worldPerPixelAt(p: Vector3): number {
+    const distance = this.camera.position.distanceTo(p)
+    return (2 * distance * Math.tan(((FOV_DEG / 2) * Math.PI) / 180)) / this.height
+  }
 
-    let item: SelectionItem | null = null
-    if (preferEdge && edgeHit.index !== undefined) {
-      const body = visibleBodies.find((b) => b.edges === edgeHit.object)
-      const group = body && findTopoGroup(body.edgeGroups, edgeHit.index)
-      if (body && group) item = { bodyId: body.bodyId, kind: 'edge', topoId: group.topoId }
-    } else if (faceHit && faceHit.faceIndex !== undefined && faceHit.faceIndex !== null) {
-      const body = visibleBodies.find((b) => b.surface === faceHit.object)
-      const group = body && findTopoGroup(body.faceGroups, faceHit.faceIndex * 3)
-      if (body && group) item = { bodyId: body.bodyId, kind: 'face', topoId: group.topoId }
-    }
-
-    if (!item) {
-      store.clearSelection()
-      return
-    }
-    if (tapCount >= 2) {
-      store.replaceSelection([{ bodyId: item.bodyId, kind: 'body', topoId: 0 }])
-    } else {
-      store.toggleSelection(item)
+  private worldToLocalPx(world: Vector3): Px {
+    const ndc = world.clone().project(this.camera)
+    return {
+      x: ((ndc.x + 1) / 2) * this.width,
+      y: ((1 - ndc.y) / 2) * this.height,
     }
   }
 
@@ -872,21 +1143,11 @@ export class Viewport {
 
   private buildEnvironment(): void {
     // GridHelper 產生在 XZ 平面，旋轉到 XY（Z-up 世界的地面）。
-    const minor = new GridHelper(
-      GRID_EXTENT,
-      GRID_EXTENT / MINOR_SPACING,
-      GRID_MINOR,
-      GRID_MINOR,
-    )
+    const minor = new GridHelper(GRID_EXTENT, GRID_EXTENT / MINOR_SPACING, GRID_MINOR, GRID_MINOR)
     minor.rotation.x = Math.PI / 2
     this.scene.add(minor)
 
-    const major = new GridHelper(
-      GRID_EXTENT,
-      GRID_EXTENT / MAJOR_SPACING,
-      GRID_MAJOR,
-      GRID_MAJOR,
-    )
+    const major = new GridHelper(GRID_EXTENT, GRID_EXTENT / MAJOR_SPACING, GRID_MAJOR, GRID_MAJOR)
     major.rotation.x = Math.PI / 2
     major.position.z = 0.02 // 避免與細格 z-fighting
     this.scene.add(major)
@@ -909,4 +1170,16 @@ export class Viewport {
     ])
     this.scene.add(new Line(geometry, new LineBasicMaterial({ color, toneMapped: false })))
   }
+}
+
+function formatSigned(value: number): string {
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)} mm`
+}
+
+function planeAnchor(plane: SketchPlane, uv: Vec2): [number, number, number] {
+  return [
+    plane.origin[0] + plane.xDir[0] * uv.x + plane.yDir[0] * uv.y,
+    plane.origin[1] + plane.xDir[1] * uv.x + plane.yDir[1] * uv.y,
+    plane.origin[2] + plane.xDir[2] * uv.x + plane.yDir[2] * uv.y,
+  ]
 }

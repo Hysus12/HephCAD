@@ -3,6 +3,7 @@
 // 讓後續 op 的 hostBodyId 引用永遠有效（ADR 0002/0003）。
 
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
+import type { ToolKind } from '../sketch/tools.ts'
 
 export type Translation = [number, number, number]
 
@@ -38,6 +39,30 @@ export type JournalOp =
       /** 獨立新 body 的 id（有宿主時為 null）。 */
       newBodyId: number | null
       name: string | null
+      /** 來源草圖與區域識別（用來把已擠出的區域從草圖上隱藏；舊文件沒有）。 */
+      sketchId?: number
+      regionKey?: string
+    }
+  | {
+      /**
+       * 草圖是文件實體：每一筆畫線/刪線都是一個 op，所以能逐筆 undo、
+       * 重開檔仍在。kernel 不需要它（擠出 op 自帶曲線），只由主執行緒推導。
+       */
+      kind: 'sketch'
+      sketchId: number
+      plane: SketchPlane
+      hostBodyId: number | null
+      add: SketchCurve[]
+      remove: number[]
+      /** 歷程標籤用。 */
+      tool?: ToolKind
+    }
+  | {
+      /** 直接建模：把 body 的平面沿法線推（<0）或拉（>0）。 */
+      kind: 'pushPull'
+      bodyId: number
+      faceId: number
+      distance: number
     }
   | { kind: 'importStep'; bodyId: number; name: string; data: string }
   | { kind: 'transform'; bodyId: number; translation: Translation }
@@ -95,6 +120,18 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
         : `圓角 ${op.radius.toFixed(1)}mm`
     case 'shell':
       return `抽殼 ${op.thickness.toFixed(1)}mm`
+    case 'sketch': {
+      if (op.add.length === 0) return `刪除草圖線 ×${op.remove.length}`
+      const names: Record<ToolKind, string> = {
+        line: '直線',
+        arc: '圓弧',
+        rect: '矩形',
+        circle: '圓',
+      }
+      return `草圖：${op.tool ? names[op.tool] : `${op.add.length} 條線`}`
+    }
+    case 'pushPull':
+      return `推拉面 ${op.distance >= 0 ? '+' : ''}${op.distance.toFixed(1)}mm`
   }
 }
 
@@ -122,6 +159,8 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
       case 'transform':
       case 'fillet':
       case 'shell':
+      case 'sketch':
+      case 'pushPull':
         break
     }
   }

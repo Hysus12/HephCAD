@@ -6,6 +6,7 @@ import ocFactory from 'opencascade.js/dist/opencascade.full.js'
 import ocWasmUrl from 'opencascade.js/dist/opencascade.full.wasm?url'
 import type {
   OpenCascadeInstance,
+  TopoDS_Face,
   TopoDS_Shape,
   TopAbs_ShapeEnum,
   STEPControl_StepModelType,
@@ -234,7 +235,76 @@ function booleanWithHost(
   progress.delete()
   tool.delete()
   if (!merged) throw new Error('布林運算失敗')
-  return merged
+  return unifySameDomain(oc, merged)
+}
+
+/** 合併共面（同一曲面）的相鄰面與共線邊，產出乾淨的拓撲。失敗時原樣回傳。 */
+function unifySameDomain(oc: OpenCascadeInstance, shape: TopoDS_Shape): TopoDS_Shape {
+  try {
+    const unify = new oc.ShapeUpgrade_UnifySameDomain_2(shape, true, true, false)
+    unify.Build()
+    const unified = unify.Shape()
+    unify.delete()
+    shape.delete()
+    return unified
+  } catch {
+    return shape
+  }
+}
+
+/** 平面 face 的朝外單位法線；非平面回傳 null。 */
+function planarFaceNormal(
+  oc: OpenCascadeInstance,
+  face: TopoDS_Face,
+): [number, number, number] | null {
+  const surface = new oc.BRepAdaptor_Surface_2(face, true)
+  if (surface.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+    surface.delete()
+    return null
+  }
+  const pln = surface.Plane()
+  const pos = pln.Position()
+  const dir = pos.Direction()
+  const sign = face.Orientation_1() === oc.TopAbs_Orientation.TopAbs_REVERSED ? -1 : 1
+  const normal: [number, number, number] = [sign * dir.X(), sign * dir.Y(), sign * dir.Z()]
+  dir.delete()
+  pos.delete()
+  pln.delete()
+  surface.delete()
+  return normal
+}
+
+/**
+ * 推拉面：把平面 face 沿朝外法線掃出稜柱，distance > 0 與 body 聯集（長出去）、
+ * < 0 從 body 減去（壓進去）。
+ */
+function pushPullShape(
+  oc: OpenCascadeInstance,
+  body: TopoDS_Shape,
+  faceId: number,
+  distance: number,
+): TopoDS_Shape {
+  if (Math.abs(distance) < 1e-3) throw new Error('推拉距離過小')
+  const faceMap = new oc.TopTools_IndexedMapOfShape_1()
+  oc.TopExp.MapShapes_1(body, oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum, faceMap)
+  if (faceId < 1 || faceId > faceMap.Extent()) {
+    faceMap.delete()
+    throw new Error('找不到要推拉的面')
+  }
+  const face = oc.TopoDS.Face_1(faceMap.FindKey(faceId))
+  faceMap.delete()
+  const normal = planarFaceNormal(oc, face)
+  if (!normal) {
+    face.delete()
+    throw new Error('只能推拉平面')
+  }
+  const vec = new oc.gp_Vec_4(normal[0] * distance, normal[1] * distance, normal[2] * distance)
+  const prismMaker = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true)
+  const prism = prismMaker.Shape()
+  prismMaker.delete()
+  vec.delete()
+  face.delete()
+  return booleanWithHost(oc, body, prism, distance > 0)
 }
 
 // ---- journal 執行器 ----
@@ -301,6 +371,13 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
       const bodyId = claimBodyId(jop.bodyId)
       setBody(bodyId, moved)
       return result({ ...jop, bodyId }, [bodyId])
+    }
+    case 'sketch':
+      // 草圖只存在於文件層（主執行緒推導），kernel 不需要狀態
+      return { op: jop, updated: [], removed: [] }
+    case 'pushPull': {
+      replaceBodyShape(jop.bodyId, (old) => pushPullShape(oc, old, jop.faceId, jop.distance))
+      return result(jop, [jop.bodyId])
     }
     case 'importStep': {
       const oc2 = oc as unknown as {

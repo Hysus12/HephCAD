@@ -46,3 +46,17 @@ describe('snapPoint', () => {
     expect(r.point).toEqual({ x: 22.5, y: 32.5 })
   })
 })
+
+describe('snapPoint 模型吸附點', () => {
+  it('模型頂點與草圖端點同優先級、邊中點與草圖中點同優先級', () => {
+    const opts = {
+      curves: [] as SketchCurve[],
+      tolerance: 1,
+      gridSpacing: 5 as number | null,
+      axisAnchor: null,
+      extraPoints: { endpoints: [{ x: 100, y: 100 }], midpoints: [{ x: 50, y: 100 }] },
+    }
+    expect(snapPoint({ x: 100.4, y: 99.7 }, opts)).toMatchObject({ kind: 'endpoint', point: { x: 100, y: 100 } })
+    expect(snapPoint({ x: 50.3, y: 100.2 }, opts)).toMatchObject({ kind: 'midpoint', point: { x: 50, y: 100 } })
+  })
+})

@@ -1,11 +1,14 @@
-// 文件控制器：所有幾何變更的唯一入口。
+// 文件控制器：所有幾何與草圖變更的唯一入口。
 // apply → kernel 執行 → 場景/store 同步 → journal 記錄 → 自動存檔。
-// undo = 截斷重放、redo = 重執行下一筆、recover = kernel 崩潰重啟後全量重放。
+// undo = 截斷重放、redo = 重執行下一筆、recover = kernel 崩潰重啟後全量重放、
+// amendLast = 以新參數取代最後一筆（拖曳後點尺寸輸入精確值）。
 // 重放中失敗的 op 會被略過並標記（journalFailures），文件其餘部分照常還原。
+// 草圖不在 kernel：每次文件變動後由 journal 推導（deriveSketches）再同步到 viewport。
 
 import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { ApplyOpResult, BodyMeshResult } from '../kernel/protocol.ts'
-import { useAppStore } from '../state/appStore.ts'
+import type { SketchPlane } from '../sketch/model.ts'
+import { isBodySelection, useAppStore } from '../state/appStore.ts'
 import type { Viewport } from '../viewport/Viewport.ts'
 import {
   aliveBodyNames,
@@ -15,6 +18,12 @@ import {
   type JournalOp,
 } from './journal.ts'
 import { loadDocument, saveDocument } from './persistence.ts'
+import {
+  deriveSketches,
+  findSketchOnPlane,
+  nextSketchId,
+  type SketchEntity,
+} from './sketches.ts'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -28,6 +37,7 @@ export class DocumentController {
   private cursor = 0
   /** 最近一次重放時失敗的項目（索引 → 錯誤）。 */
   private failures: Record<number, string> = {}
+  private sketchCache: Map<number, SketchEntity> = new Map()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   /** 序列化操作，避免 undo 與 apply 交錯。 */
   private queue: Promise<unknown> = Promise.resolve()
@@ -36,22 +46,26 @@ export class DocumentController {
 
   /** 執行新操作並記入 journal（會截斷 redo 尾巴）。 */
   apply(draft: JournalOp): Promise<ApplyOpResult | null> {
+    return this.enqueue(() => this.applyNow(draft))
+  }
+
+  /**
+   * 以新參數取代最後一筆操作（例如擠出 20mm 後輸入 25）。
+   * 新參數失敗時恢復原本那筆，文件不會少一步。
+   */
+  amendLast(draft: JournalOp): Promise<ApplyOpResult | null> {
     return this.enqueue(async () => {
-      const kernel = this.deps.kernel()
-      if (!kernel) return null
-      const applied = await kernel.applyOp(draft)
-      this.entries = [
-        ...this.entries.slice(0, this.cursor),
-        { label: opLabel(applied.op, (id) => this.nameOf(id)), op: applied.op },
-      ]
-      this.failures = Object.fromEntries(
-        Object.entries(this.failures).filter(([i]) => Number(i) < this.cursor),
-      )
+      if (this.cursor === 0) return null
+      const original = this.entries[this.cursor - 1]
+      this.entries = this.entries.slice(0, this.cursor - 1)
       this.cursor = this.entries.length
-      this.applyEffects(applied)
-      this.syncJournalUi()
-      this.scheduleSave()
-      return applied
+      await this.rebuild()
+      try {
+        return await this.applyNow(draft)
+      } catch (e) {
+        await this.applyNow(original.op)
+        throw e
+      }
     })
   }
 
@@ -112,10 +126,51 @@ export class DocumentController {
     return this.cursor < this.entries.length
   }
 
+  /** 目前（游標位置）的草圖實體。 */
+  sketches(): Map<number, SketchEntity> {
+    return this.sketchCache
+  }
+
+  /** 新畫的線該放進哪張草圖：同平面同宿主的既有草圖，否則新建。 */
+  sketchFor(plane: SketchPlane, hostBodyId: number | null): { sketchId: number; nextCurveId: number } {
+    const existing = findSketchOnPlane(this.sketchCache, plane, hostBodyId)
+    if (existing) return { sketchId: existing.sketchId, nextCurveId: existing.maxCurveId + 1 }
+    return { sketchId: nextSketchId(this.activeOps()), nextCurveId: 1 }
+  }
+
+  /** 最後一筆（游標前）的 op——數字修正用。 */
+  lastOp(): JournalOp | null {
+    return this.cursor > 0 ? this.entries[this.cursor - 1].op : null
+  }
+
+  // ---- 內部 ----
+
+  private async applyNow(draft: JournalOp): Promise<ApplyOpResult | null> {
+    const kernel = this.deps.kernel()
+    if (!kernel) return null
+    const applied = await kernel.applyOp(draft)
+    this.entries = [
+      ...this.entries.slice(0, this.cursor),
+      { label: opLabel(applied.op, (id) => this.nameOf(id)), op: applied.op },
+    ]
+    this.failures = Object.fromEntries(
+      Object.entries(this.failures).filter(([i]) => Number(i) < this.cursor),
+    )
+    this.cursor = this.entries.length
+    this.applyEffects(applied)
+    this.syncJournalUi()
+    this.scheduleSave()
+    return applied
+  }
+
+  private activeOps(): JournalOp[] {
+    return this.entries.slice(0, this.cursor).map((e) => e.op)
+  }
+
   private async rebuild(): Promise<void> {
     const kernel = this.deps.kernel()
     if (!kernel) return
-    const ops = this.entries.slice(0, this.cursor).map((e) => e.op)
+    const ops = this.activeOps()
     const replayed = await kernel.replayJournal(ops)
     this.failures = Object.fromEntries(replayed.failed.map((f) => [f.index, f.error]))
     if (replayed.failed.length > 0) {
@@ -132,25 +187,22 @@ export class DocumentController {
         name: names.get(b.bodyId) ?? `主體 ${b.bodyId}`,
         visible: true,
       })),
-      extrudableRegionCount: 0,
     })
+    this.syncSketches()
   }
 
   /** 把單一 op 的結果同步到場景與 store。 */
   private applyEffects(applied: ApplyOpResult): void {
     const viewport = this.deps.viewport()
     const store = useAppStore.getState()
-    if (applied.op.kind === 'transform') {
-      viewport?.discardSketchesOnBody(applied.op.bodyId)
-    }
     for (const removedId of applied.removed) {
-      viewport?.discardSketchesOnBody(removedId)
       viewport?.removeBody(removedId)
       store.removeBody(removedId)
     }
     for (const body of applied.updated) {
       this.upsertBody(body)
     }
+    if (applied.op.kind === 'sketch' || applied.op.kind === 'extrude') this.syncSketches()
   }
 
   private upsertBody(body: BodyMeshResult): void {
@@ -161,17 +213,31 @@ export class DocumentController {
       viewport?.replaceBodyMesh(body.bodyId, body.mesh)
       // 內容改變 → 舊拓撲選取失效
       store.replaceSelection(
-        store.selection.filter((s) => s.bodyId !== body.bodyId),
+        store.selection.filter((s) => !isBodySelection(s) || s.bodyId !== body.bodyId),
       )
     } else {
       viewport?.addBody(body.bodyId, body.mesh)
-      const names = aliveBodyNames(this.entries.slice(0, this.cursor).map((e) => e.op))
+      const names = aliveBodyNames(this.activeOps())
       store.addBody({
         bodyId: body.bodyId,
         name: names.get(body.bodyId) ?? `主體 ${body.bodyId}`,
         visible: true,
       })
     }
+  }
+
+  private syncSketches(): void {
+    this.sketchCache = deriveSketches(
+      this.activeOps().filter((_, i) => !(i in this.failures)),
+    )
+    useAppStore.getState().setSketches(
+      [...this.sketchCache.values()].map((s) => ({
+        sketchId: s.sketchId,
+        name: `草圖 ${s.sketchId}`,
+        curveCount: s.curves.length,
+      })),
+    )
+    this.deps.viewport()?.syncSketches(this.sketchCache)
   }
 
   private nameOf(bodyId: number): string {

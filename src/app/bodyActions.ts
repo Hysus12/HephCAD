@@ -1,4 +1,4 @@
-import { useAppStore } from '../state/appStore.ts'
+import { isBodySelection, useAppStore } from '../state/appStore.ts'
 import { documentController, services } from './services.ts'
 
 /** 刪除 body（經 journal，可 undo）。 */
@@ -15,7 +15,7 @@ export function toggleBodyVisibility(bodyId: number): void {
 /** 複製目前選取的 body（帶偏移，經 journal）。 */
 export async function copySelectedBody(): Promise<void> {
   const store = useAppStore.getState()
-  const bodySel = store.selection.find((i) => i.kind === 'body')
+  const bodySel = store.selection.filter(isBodySelection).find((i) => i.kind === 'body')
   if (!bodySel) return
   const source = store.bodies.find((b) => b.bodyId === bodySel.bodyId)
   await documentController.apply({

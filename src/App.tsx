@@ -1,15 +1,27 @@
 import { useEffect } from 'react'
 import { documentController, services } from './app/services.ts'
+import { deleteSelection, selectTool } from './app/viewportHost.ts'
 import { KernelClient } from './kernel/KernelClient.ts'
-import { useAppStore } from './state/appStore.ts'
+import { useAppStore, type ActiveTool } from './state/appStore.ts'
 import { ContextBar } from './ui/ContextBar.tsx'
-import { ExtrudeHint } from './ui/ExtrudeHint.tsx'
+import { DimensionOverlay } from './ui/DimensionOverlay.tsx'
 import { HistoryPanel } from './ui/HistoryPanel.tsx'
 import { ItemsPanel } from './ui/ItemsPanel.tsx'
 import { KernelStatusPill } from './ui/KernelStatusPill.tsx'
 import { StatusChips } from './ui/StatusChips.tsx'
+import { Toast } from './ui/Toast.tsx'
 import { Toolbar } from './ui/Toolbar.tsx'
+import { UndoBar } from './ui/UndoBar.tsx'
 import { ViewportCanvas } from './ui/ViewportCanvas.tsx'
+
+/** 鍵盤工具快捷鍵（Shapr3D / 常見 CAD 慣例）。 */
+const TOOL_KEYS: Record<string, ActiveTool> = {
+  v: 'select',
+  l: 'line',
+  a: 'arc',
+  r: 'rect',
+  c: 'circle',
+}
 
 export function App() {
   useEffect(() => {
@@ -35,11 +47,26 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const store = useAppStore.getState()
+      if (store.keypadOpen) return
       const mod = e.metaKey || e.ctrlKey
-      if (!mod || e.key.toLowerCase() !== 'z') return
-      e.preventDefault()
-      if (e.shiftKey) void documentController.redo()
-      else void documentController.undo()
+      const key = e.key.toLowerCase()
+      if (mod && key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) void documentController.redo()
+        else void documentController.undo()
+        return
+      }
+      if (mod || e.altKey) return
+      if (key === 'escape') {
+        services.viewport?.cancelInteraction()
+        store.clearSelection()
+      } else if (key === 'delete' || key === 'backspace') {
+        e.preventDefault()
+        void deleteSelection()
+      } else if (TOOL_KEYS[key]) {
+        selectTool(TOOL_KEYS[key])
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -49,12 +76,14 @@ export function App() {
     <div className="app">
       <ViewportCanvas />
       <ItemsPanel />
+      <UndoBar />
       <HistoryPanel />
       <Toolbar />
       <StatusChips />
       <KernelStatusPill />
-      <ExtrudeHint />
       <ContextBar />
+      <DimensionOverlay />
+      <Toast />
     </div>
   )
 }
