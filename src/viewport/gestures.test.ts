@@ -190,14 +190,23 @@ describe('Apple Pencil 防誤觸', () => {
     expect(s.cb.orbit).toHaveBeenCalled()
   })
 
-  it('筆懸停時落下的觸控被忽略（iPad M2+ 懸停）', () => {
+  it('筆只是懸停時，手指照常轉視角（另一隻手不被吃掉）', () => {
     s.clock.now = 10_000
     s.g.onPointerMove(ev(1, 0, 0, 'pen', { buttons: 0 }))
     expect(s.cb.hover).toHaveBeenCalledWith(0, 0, 'pen')
+    expect(s.cb.penDetected).toHaveBeenCalled()
     s.clock.now += 100
     s.g.onPointerDown(ev(2, 300, 300, 'touch'))
     s.g.onPointerMove(ev(2, 330, 300, 'touch'))
-    expect(s.cb.orbit).not.toHaveBeenCalled()
+    expect(s.cb.orbit).toHaveBeenCalled()
+  })
+
+  it('筆接觸事件遺失（沒收到 pointerup）超過 2 秒後，手指恢復可用', () => {
+    s.g.onPointerDown(ev(1, 0, 0, 'pen'))
+    s.clock.now += 2500
+    s.g.onPointerDown(ev(2, 300, 300, 'touch'))
+    s.g.onPointerMove(ev(2, 330, 300, 'touch'))
+    expect(s.cb.orbit).toHaveBeenCalled()
   })
 
   it('先擱上的手掌：筆落下時停止它的導航、之後的移動都忽略', () => {

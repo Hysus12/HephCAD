@@ -58,6 +58,21 @@ const TOOL_LABELS: Record<ActiveTool, string> = {
 
 const TOOLS: ActiveTool[] = ['select', 'line', 'arc', 'rect', 'circle']
 
+const MODE_ICONS: Record<string, ReactElement> = {
+  multi: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <rect x="4" y="4" width="10" height="10" rx="2" />
+      <rect x="10" y="10" width="10" height="10" rx="2" />
+      <path d="M12.5 15 L14.5 17 L18 13" />
+    </svg>
+  ),
+  finger: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M9 11 V5.5 a1.5 1.5 0 0 1 3 0 V11 M12 10 a1.5 1.5 0 0 1 3 0 V12 a1.5 1.5 0 0 1 3 0 V15 a6 6 0 0 1 -6 6 h-1 a5 5 0 0 1 -4 -2 L5 15 a1.4 1.4 0 0 1 2.2 -1.7 L9 15" />
+    </svg>
+  ),
+}
+
 const ADD_ICONS: Record<string, ReactElement> = {
   add: (
     <svg viewBox="0 0 24 24" {...stroke}>
@@ -90,6 +105,10 @@ export function Toolbar() {
   const [addOpen, setAddOpen] = useState(false)
   const kernelReady = useAppStore((s) => s.kernelStatus === 'ready')
   const activeTool = useAppStore((s) => s.activeTool)
+  const multiSelect = useAppStore((s) => s.multiSelect)
+  const toggleMultiSelect = useAppStore((s) => s.toggleMultiSelect)
+  const fingerDraw = useAppStore((s) => s.fingerDraw)
+  const toggleFingerDraw = useAppStore((s) => s.toggleFingerDraw)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const runAndCollapse = (action: () => Promise<void>) => {
@@ -113,6 +132,26 @@ export function Toolbar() {
             {TOOL_ICONS[tool]}
           </button>
         ))}
+      </div>
+      <div className="toolbar-group">
+        <button
+          className={`toolbar-button ${multiSelect ? 'toolbar-button-active' : ''}`}
+          title="多選：點選加入或移出選取，點到面＝整個本體（之後可做布林運算）"
+          aria-label="多選"
+          aria-pressed={multiSelect}
+          onClick={toggleMultiSelect}
+        >
+          {MODE_ICONS.multi}
+        </button>
+        <button
+          className={`toolbar-button ${fingerDraw ? 'toolbar-button-active' : ''}`}
+          title="手指也能畫圖（沒有 Apple Pencil 時打開；預設手指只轉視角）"
+          aria-label="手指畫圖"
+          aria-pressed={fingerDraw}
+          onClick={toggleFingerDraw}
+        >
+          {MODE_ICONS.finger}
+        </button>
       </div>
       <div className="toolbar-group">
         <div className="toolbar-flyout-anchor">
