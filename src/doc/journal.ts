@@ -135,6 +135,21 @@ export type JournalOp =
       bodyIds?: number[]
     }
   | {
+      /**
+       * 建構平面（純文件層）：基準平面（normal + point）沿法向偏移 offset，
+       * size＝顯示方塊邊長。
+       */
+      kind: 'plane'
+      action: 'create'
+      planeId: number
+      name: string
+      normal: Translation
+      point: Translation
+      offset: number
+      size: number
+    }
+  | { kind: 'plane'; action: 'delete'; planeId: number }
+  | {
       /** 外觀（純文件層）：顏色 '#rrggbb' 與不透明度 0.05–1；沒給的欄位維持原樣。 */
       kind: 'material'
       bodyIds: number[]
@@ -227,6 +242,8 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       return `${BOOL_LABELS[op.mode]} ${nameOf(op.targetId)}`
     case 'pattern':
       return `${op.mode === 'linear' ? '線性' : '圓形'}陣列 ×${op.count}`
+    case 'plane':
+      return op.action === 'delete' ? '刪除建構平面' : `偏移平面 ${op.offset.toFixed(1)}mm`
     case 'material':
       return op.opacity !== undefined && op.color === undefined
         ? `透明度 ${Math.round(op.opacity * 100)}%`
@@ -275,6 +292,7 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
         break
       case 'folder':
       case 'material':
+      case 'plane':
         break
       case 'pattern':
         op.resultBodyIds.forEach((id, i) => names.set(id, `${op.name} ${i + 2}`))

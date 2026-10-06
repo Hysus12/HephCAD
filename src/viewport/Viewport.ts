@@ -32,6 +32,7 @@ import {
   type SketchCurve,
   type SketchPlane,
   type Vec2,
+  type Vec3Tuple,
 } from '../sketch/model.ts'
 import { planeFromNormal } from '../sketch/plane.ts'
 import type { ToolKind } from '../sketch/tools.ts'
@@ -53,6 +54,8 @@ import { DrawController, type DrawTarget } from './DrawController.ts'
 import { ExtrudePreview } from './ExtrudePreview.ts'
 import { dragHeight, type Px } from './extrudeMath.ts'
 import { DEFAULT_MATERIAL, type BodyMaterial } from '../doc/materials.ts'
+import type { PlaneEntity } from '../doc/planes.ts'
+import { PlaneLayer } from './PlaneLayer.ts'
 import { GestureController, type PrimaryRole } from './gestures.ts'
 import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
 import { angleAboutAxis, screenAngleDelta } from './rotateMath.ts'
@@ -94,6 +97,8 @@ export interface ViewportHost {
   commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind): Promise<void>
   /** 把最後畫的那條線/圓改成指定長度/半徑。 */
   resizeLastSketchCurve(value: number): Promise<void>
+  /** 新建構平面要用的 id。 */
+  nextPlaneId(): number
   /** 新資料夾（陣列自動建立的也算）要用的 id。 */
   nextFolderId(): number
   /** 把選取的線/圓改成指定長度/半徑（相接的線跟著動）。 */
@@ -101,6 +106,9 @@ export interface ViewportHost {
   undo(): void
   redo(): void
 }
+
+/** 放開後可編輯尺寸所需的欄位（建構平面等沒有把手的建立流程也能用）。 */
+type Armable = Pick<Manipulation, 'build' | 'label' | 'blend' | 'minValue' | 'boolRef' | 'autoBool' | 'unit'>
 
 /** 拖曳把手進行中的狀態。 */
 interface Manipulation {
@@ -157,6 +165,8 @@ export class Viewport {
   private materials = new Map<number, BodyMaterial>()
   private readonly meshes = new Map<number, MeshData>()
   private readonly sketchLayers = new Map<number, SketchLayer>()
+  private readonly planeLayers = new Map<number, PlaneLayer>()
+  private planeEntities = new Map<number, PlaneEntity>()
   private readonly raycaster = new Raycaster()
   private readonly highlighter: SelectionHighlighter
   private readonly handles: HandleLayer
@@ -178,7 +188,7 @@ export class Viewport {
   /** 目前的尺寸標籤是否屬於「選取的草圖線」（換選取時才需要清掉）。 */
   private curveDimensionOwner = false
   /** 剛擠出、徽章可改布林模式的那次操作。 */
-  private armed: { m: Manipulation; value: number; anchor: Vector3 } | null = null
+  private armed: { m: Armable; value: number; anchor: Vector3 } | null = null
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -228,7 +238,9 @@ export class Viewport {
         state.bodies !== prev.bodies ||
         state.sketches !== prev.sketches ||
         state.toolMode !== prev.toolMode ||
-        state.patternType !== prev.patternType
+        state.patternType !== prev.patternType ||
+        state.planes !== prev.planes ||
+        state.activePlaneId !== prev.activePlaneId
       ) {
         this.syncVisibility()
         this.syncHighlights()
@@ -349,6 +361,60 @@ export class Viewport {
   }
 
   /** 由 journal 推導的草圖：新增/更新/移除對應的 SketchLayer。 */
+  syncPlanes(planes: Map<number, PlaneEntity>): void {
+    this.planeEntities = planes
+    for (const [id, layer] of this.planeLayers) {
+      if (!planes.has(id)) {
+        layer.dispose()
+        this.planeLayers.delete(id)
+      }
+    }
+    for (const [id, entity] of planes) {
+      const layer = this.planeLayers.get(id)
+      if (layer) layer.update(entity)
+      else this.planeLayers.set(id, new PlaneLayer(this.scene, entity))
+    }
+    this.syncVisibility()
+    this.invalidate()
+  }
+
+  /**
+   * 建立偏移建構平面（預設 20mm），接著掛上可編輯的偏移量標籤。
+   * base＝基準平面的法向與一個基準點；size＝顯示方塊邊長。
+   */
+  async createOffsetPlane(base: { normal: Vec3Tuple; point: Vec3Tuple }, size: number): Promise<void> {
+    if (!this.host) return
+    const planeId = this.host.nextPlaneId()
+    const build = (offset: number): JournalOp | null =>
+      Math.abs(offset) < 0.5
+        ? null
+        : {
+            kind: 'plane',
+            action: 'create',
+            planeId,
+            name: `建構平面 ${planeId}`,
+            normal: base.normal,
+            point: base.point,
+            offset,
+            size,
+          }
+    const op = build(20)
+    if (!op) return
+    try {
+      await this.host.commit(op)
+    } catch (e) {
+      useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
+    const entity = this.planeEntities.get(planeId)
+    const anchor = new Vector3(...(entity?.center ?? base.point))
+    this.armDimension(
+      { build, label: formatSigned, blend: false, minValue: -Infinity },
+      20,
+      anchor,
+    )
+  }
+
   syncSketches(sketches: Map<number, SketchEntity>): void {
     for (const [id, layer] of this.sketchLayers) {
       if (!sketches.has(id)) {
@@ -499,6 +565,7 @@ export class Viewport {
     this.resizeObserver.disconnect()
     this.gestures.dispose()
     for (const layer of this.sketchLayers.values()) layer.dispose()
+    for (const layer of this.planeLayers.values()) layer.dispose()
     this.handles.clear()
     this.renderer.dispose()
     this.renderer.domElement.remove()
@@ -605,6 +672,19 @@ export class Viewport {
     const pending = this.draw.pendingTarget()
     if (pending) return pending
 
+    const activePlane = this.activePlaneEntity()
+    if (activePlane) {
+      const entities = new Map([...this.sketchLayers].map(([id, l]) => [id, l.entity]))
+      const existing = findSketchOnPlane(entities, activePlane.plane, null)
+      const plane = existing?.plane ?? activePlane.plane
+      return {
+        plane,
+        hostBodyId: null,
+        existingCurves: existing?.curves ?? [],
+        extraPoints: this.modelSnapPoints(plane),
+      }
+    }
+
     this.setRay(local)
     let best: { plane: SketchPlane; host: number | null; distance: number } | null = null
 
@@ -648,6 +728,28 @@ export class Viewport {
       existingCurves: existing?.curves ?? [],
       extraPoints: this.modelSnapPoints(plane),
     }
+  }
+
+  private activePlaneEntity(): PlaneEntity | null {
+    const { activePlaneId, planes } = useAppStore.getState()
+    if (activePlaneId === null) return null
+    const entry = planes.find((p) => p.planeId === activePlaneId)
+    return entry?.visible === false ? null : (this.planeEntities.get(activePlaneId) ?? null)
+  }
+
+  /** 螢幕點打到的最近建構平面（比最近的實體面更近才算）。 */
+  private pickPlane(local: Px): number | null {
+    this.setRay(local)
+    let best: { id: number; distance: number } | null = null
+    for (const [id, layer] of this.planeLayers) {
+      const distance = layer.pick(this.raycaster)
+      if (distance !== null && (!best || distance < best.distance)) best = { id, distance }
+    }
+    if (!best) return null
+    const bodyHit = this.raycaster
+      .intersectObjects(this.visibleBodies().map((b) => b.surface), false)
+      .find((h) => visiblePoint(h.point))
+    return bodyHit && bodyHit.distance < best.distance ? null : best.id
   }
 
   /** 模型上剛好落在此平面的頂點與直線邊中點（在方塊頂面畫圖時吸附角點）。 */
@@ -744,6 +846,37 @@ export class Viewport {
             Math.abs(distance) < 0.5
               ? null
               : { kind: 'pushPull', bodyId: action.bodyId, faceId: action.faceId, distance },
+          label: formatSigned,
+          param: null,
+          blend: false,
+          minValue: -Infinity,
+        }
+        break
+      }
+      case 'planeOffset': {
+        const mesh = this.meshes.get(action.bodyId)
+        const group = this.bodies.get(action.bodyId)?.faceGroups.find((g) => g.topoId === action.faceId)
+        if (!mesh || !group || !this.host) return false
+        const info = faceInfo(mesh, group)
+        const size = Math.max(60, Math.sqrt(info.area) * 1.4)
+        const planeId = this.host.nextPlaneId()
+        const normal: Vec3Tuple = [spec.dir.x, spec.dir.y, spec.dir.z]
+        const point: Vec3Tuple = [spec.origin.x, spec.origin.y, spec.origin.z]
+        manip = {
+          preview: new ExtrudePreview(this.scene, faceSubMesh(mesh, group), normal, true),
+          build: (offset) =>
+            Math.abs(offset) < 0.5
+              ? null
+              : {
+                  kind: 'plane',
+                  action: 'create',
+                  planeId,
+                  name: `建構平面 ${planeId}`,
+                  normal,
+                  point,
+                  offset,
+                  size,
+                },
           label: formatSigned,
           param: null,
           blend: false,
@@ -975,7 +1108,7 @@ export class Viewport {
    * 放開後的可編輯尺寸：點它輸入精確值，以新參數取代剛才那一步；
    * 每次修改完會重新掛上，所以能連續微調（圓角 ↔ 倒角、改角度…）。
    */
-  private armDimension(m: Manipulation, value: number, anchor: Vector3): void {
+  private armDimension(m: Armable, value: number, anchor: Vector3): void {
     this.armed = { m, value, anchor }
     if (m.boolRef && m.autoBool) {
       useAppStore.getState().setBoolBadge({ mode: m.boolRef.mode ?? m.autoBool(value) })
@@ -1263,6 +1396,21 @@ export class Viewport {
       ]
     }
 
+    if (toolMode === 'plane') {
+      const face = bodyItems.find((i) => i.kind === 'face')
+      const placed = face && this.facePlacement(face)
+      if (!face || !placed?.planar) return []
+      return [
+        {
+          id: 'planeOffset',
+          origin: placed.origin,
+          dir: placed.normal,
+          color: HANDLE_COLOR,
+          action: { kind: 'planeOffset', bodyId: face.bodyId, faceId: face.topoId },
+        },
+      ]
+    }
+
     if (toolMode === 'pattern') {
       const body = bodyItems.find((i) => i.kind === 'body')
       const obj = body && this.bodies.get(body.bodyId)
@@ -1378,6 +1526,15 @@ export class Viewport {
       return
     }
     const store = useAppStore.getState()
+    // 雙擊建構平面：選為草圖平面（再雙擊同一個＝取消）
+    if (tapCount >= 2) {
+      const planeId = this.pickPlane(local)
+      if (planeId !== null) {
+        store.setActivePlaneId(store.activePlaneId === planeId ? null : planeId)
+        store.clearSelection()
+        return
+      }
+    }
     const item = this.pickAt(local)
     if (!item) {
       store.clearSelection()
@@ -1489,6 +1646,12 @@ export class Viewport {
       if (body) body.group.visible = entry.visible
     }
     for (const entry of sketches) this.sketchLayers.get(entry.sketchId)?.setVisible(entry.visible)
+    const { planes, activePlaneId } = useAppStore.getState()
+    for (const entry of planes) {
+      const layer = this.planeLayers.get(entry.planeId)
+      layer?.setVisible(entry.visible)
+      layer?.setActive(entry.planeId === activePlaneId)
+    }
   }
 
   private syncHighlights(): void {
@@ -1712,6 +1875,7 @@ function slidesWithDrag(action: HandleSpec['action']): boolean {
   return (
     action.kind === 'extrudeRegion' ||
     action.kind === 'pushPull' ||
+    action.kind === 'planeOffset' ||
     action.kind === 'moveAxis' ||
     action.kind === 'patternLinear'
   )

@@ -74,6 +74,17 @@ export function toggleFolderVisibility(bodyIds: number[]): void {
   for (const b of members) store.setBodyVisible(b.bodyId, show)
 }
 
+/** 以世界基準面（上/前/右）建立偏移建構平面，建立後可輸入偏移量。 */
+export async function createBasePlane(base: 'top' | 'front' | 'right'): Promise<void> {
+  const normal: [number, number, number] =
+    base === 'top' ? [0, 0, 1] : base === 'front' ? [0, 1, 0] : [1, 0, 0]
+  await services.viewport?.createOffsetPlane({ normal, point: [0, 0, 0] }, 200)
+}
+
+export async function deletePlane(planeId: number): Promise<void> {
+  await documentController.apply({ kind: 'plane', action: 'delete', planeId })
+}
+
 /**
  * 設定外觀。連續調整同一批本體時併入同一步（amend），undo 一次就回到調整前。
  * 滑桿拖曳中請先用 viewport.previewMaterial 預覽，放開才呼叫這個。

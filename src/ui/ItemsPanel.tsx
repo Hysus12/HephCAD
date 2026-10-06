@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import {
+  createBasePlane,
   deleteBody,
+  deletePlane,
   exportStep,
   renameFolder,
   toggleBodyVisibility,
@@ -18,16 +20,33 @@ export function ItemsPanel() {
   const sketches = useAppStore((s) => s.sketches)
   const setSketchVisible = useAppStore((s) => s.setSketchVisible)
   const replaceSelection = useAppStore((s) => s.replaceSelection)
+  const planes = useAppStore((s) => s.planes)
+  const setPlaneVisible = useAppStore((s) => s.setPlaneVisible)
+  const activePlaneId = useAppStore((s) => s.activePlaneId)
+  const setActivePlaneId = useAppStore((s) => s.setActivePlaneId)
+  const [planeMenu, setPlaneMenu] = useState(false)
   const folders = useAppStore((s) => s.folders)
   const toggleFolderExpanded = useAppStore((s) => s.toggleFolderExpanded)
   const inFolder = new Set(folders.flatMap((f) => f.bodyIds))
 
-  if (bodies.length === 0 && sketches.length === 0) return null
+  if (bodies.length === 0 && sketches.length === 0 && planes.length === 0) return null
 
   return (
     <div className="items-panel">
       <div className="items-panel-header">
         <span className="items-panel-title">項目</span>
+        <button
+          className="items-icon"
+          title="新增建構平面"
+          aria-label="新增建構平面"
+          aria-expanded={planeMenu}
+          onClick={() => setPlaneMenu(!planeMenu)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 15 L9 8 H21 L15 15 Z" />
+            <path d="M12 18 V22 M10 20 H14" />
+          </svg>
+        </button>
         <button
           className="items-icon"
           title="匯出 STEP"
@@ -47,6 +66,30 @@ export function ItemsPanel() {
           </svg>
         </button>
       </div>
+      {planeMenu && (
+        <div className="items-menu" role="menu" aria-label="基準面">
+          {(
+            [
+              ['top', '上視（水平）'],
+              ['front', '前視'],
+              ['right', '右視'],
+            ] as const
+          ).map(([base, label]) => (
+            <button
+              key={base}
+              role="menuitem"
+              className="items-menu-item"
+              onClick={() => {
+                setPlaneMenu(false)
+                void createBasePlane(base)
+              }}
+            >
+              偏移 {label}
+            </button>
+          ))}
+          <span className="items-menu-hint">選一個面後用情境列的「偏移平面」可從面偏移</span>
+        </div>
+      )}
       {folders.map((folder) => {
         const members = folder.bodyIds
           .map((id) => bodies.find((b) => b.bodyId === id))
@@ -130,6 +173,39 @@ export function ItemsPanel() {
           </div>
         )
       })}
+      {planes.map((plane) => (
+        <div
+          key={`plane-${plane.planeId}`}
+          className={`items-row ${activePlaneId === plane.planeId ? 'items-row-selected' : ''} ${
+            plane.visible ? '' : 'items-row-hidden'
+          }`}
+        >
+          <button
+            className="items-name items-name-plane"
+            title="雙擊 3D 中的平面，或點這裡：選為草圖平面"
+            onClick={() => setActivePlaneId(activePlaneId === plane.planeId ? null : plane.planeId)}
+          >
+            {plane.name}
+            {activePlaneId === plane.planeId && <span className="items-meta">草圖中</span>}
+          </button>
+          <button
+            className="items-icon"
+            title={plane.visible ? '隱藏' : '顯示'}
+            aria-label={plane.visible ? `隱藏 ${plane.name}` : `顯示 ${plane.name}`}
+            onClick={() => setPlaneVisible(plane.planeId, !plane.visible)}
+          >
+            <EyeIcon open={plane.visible} />
+          </button>
+          <button
+            className="items-icon"
+            title="刪除"
+            aria-label={`刪除 ${plane.name}`}
+            onClick={() => void deletePlane(plane.planeId)}
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

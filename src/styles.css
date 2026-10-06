@@ -783,3 +783,31 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.items-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 6px;
+}
+
+.items-menu-item {
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.items-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.items-menu-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  padding: 2px 10px;
+}

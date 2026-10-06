@@ -87,6 +87,7 @@ export function ContextBar() {
     if (selection.length === 1) {
       hint = '拖曳藍色箭頭推拉這個面'
       modes.push({ mode: 'shell', label: '抽殼' })
+      modes.push({ mode: 'plane', label: '偏移平面' })
     }
     canLookAt = true
   } else if (only('edge') && sameBody) {
@@ -109,6 +110,8 @@ export function ContextBar() {
       patternType === 'linear'
         ? `箭頭＝沿軸陣列（${patternDefinition === 'total' ? '拖到的距離是總長' : '拖到的距離是間距'}）；點數字可輸入精確值`
         : '圓環＝繞軸陣列（拖滿一圈＝均分整圈）；點數字可輸入總角度'
+  } else if (toolMode === 'plane') {
+    hint = '拖曳箭頭設定偏移量；之後雙擊平面就能在上面畫圖'
   } else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
 
   return (

@@ -668,6 +668,7 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
     case 'sketch':
     case 'folder':
     case 'material':
+    case 'plane':
       // 草圖、資料夾與外觀只存在於文件層（主執行緒由 journal 推導），kernel 不需要狀態
       return { op: jop, updated: [], removed: [] }
     case 'pushPull': {

@@ -61,6 +61,7 @@ export function createViewportHost(): ViewportHost {
       })
     },
     nextFolderId: () => documentController.nextFolderId(),
+    nextPlaneId: () => documentController.nextPlaneId(),
     undo: () => void documentController.undo(),
     redo: () => void documentController.redo(),
   }

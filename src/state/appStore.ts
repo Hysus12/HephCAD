@@ -18,6 +18,12 @@ export interface FolderEntry {
   expanded: boolean
 }
 
+export interface PlaneEntry {
+  planeId: number
+  name: string
+  visible: boolean
+}
+
 export interface SketchEntry {
   sketchId: number
   name: string
@@ -104,6 +110,14 @@ export interface AppState {
   setFolders: (list: Omit<FolderEntry, 'expanded'>[]) => void
   toggleFolderExpanded: (folderId: number) => void
 
+  /** 建構平面（由 journal 推導；顯示/隱藏是本地視圖狀態）。 */
+  planes: PlaneEntry[]
+  setPlanes: (list: Omit<PlaneEntry, 'visible'>[]) => void
+  setPlaneVisible: (planeId: number, visible: boolean) => void
+  /** 目前用來畫草圖的建構平面（雙擊平面選取）；null＝依點到的面/地面。 */
+  activePlaneId: number | null
+  setActivePlaneId: (planeId: number | null) => void
+
   /** 文件中的草圖（由 journal 推導；顯示/隱藏是本地視圖狀態，跨推導保留）。 */
   sketches: SketchEntry[]
   setSketches: (list: Omit<SketchEntry, 'visible'>[]) => void
@@ -116,7 +130,7 @@ export interface AppState {
   clearSelection: () => void
 
   /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
-  toolMode: 'move' | 'shell' | 'pattern' | null
+  toolMode: 'move' | 'shell' | 'pattern' | 'plane' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
   activeTool: ActiveTool
@@ -228,6 +242,20 @@ export const useAppStore = create<AppState>()((set) => ({
         selection: s.selection.filter((item) => isBodySelection(item) || alive.has(item.sketchId)),
       }
     }),
+  planes: [],
+  setPlanes: (list) =>
+    set((s) => {
+      const visibility = new Map(s.planes.map((e) => [e.planeId, e.visible]))
+      const alive = new Set(list.map((e) => e.planeId))
+      return {
+        planes: list.map((e) => ({ ...e, visible: visibility.get(e.planeId) ?? true })),
+        activePlaneId: s.activePlaneId !== null && alive.has(s.activePlaneId) ? s.activePlaneId : null,
+      }
+    }),
+  setPlaneVisible: (planeId, visible) =>
+    set((s) => ({ planes: s.planes.map((e) => (e.planeId === planeId ? { ...e, visible } : e)) })),
+  activePlaneId: null,
+  setActivePlaneId: (planeId) => set({ activePlaneId: planeId }),
   setSketchVisible: (sketchId, visible) =>
     set((s) => ({
       sketches: s.sketches.map((e) => (e.sketchId === sketchId ? { ...e, visible } : e)),

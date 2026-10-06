@@ -20,6 +20,7 @@ import {
 import { loadDocument, saveDocument } from './persistence.ts'
 import { deriveFolders, nextFolderId } from './folders.ts'
 import { deriveMaterials, type BodyMaterial } from './materials.ts'
+import { derivePlanes, nextPlaneId, type PlaneEntity } from './planes.ts'
 import {
   deriveSketches,
   findSketchOnPlane,
@@ -40,6 +41,7 @@ export class DocumentController {
   /** 最近一次重放時失敗的項目（索引 → 錯誤）。 */
   private failures: Record<number, string> = {}
   private sketchCache: Map<number, SketchEntity> = new Map()
+  private planeCache: Map<number, PlaneEntity> = new Map()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   /** 序列化操作，避免 undo 與 apply 交錯。 */
   private queue: Promise<unknown> = Promise.resolve()
@@ -145,6 +147,14 @@ export class DocumentController {
     return nextFolderId(this.activeOps())
   }
 
+  planeEntities(): Map<number, PlaneEntity> {
+    return this.planeCache
+  }
+
+  nextPlaneId(): number {
+    return nextPlaneId(this.activeOps())
+  }
+
   /** 目前外觀（沒設定過＝undefined）。 */
   materialOf(bodyId: number): BodyMaterial | undefined {
     return useAppStore.getState().materials[bodyId]
@@ -203,6 +213,7 @@ export class DocumentController {
     this.syncSketches()
     this.syncFolders()
     this.syncMaterials()
+    this.syncPlanes()
   }
 
   /** 把單一 op 的結果同步到場景與 store。 */
@@ -219,6 +230,16 @@ export class DocumentController {
     if (applied.op.kind === 'sketch' || applied.op.kind === 'extrude') this.syncSketches()
     this.syncFolders()
     this.syncMaterials()
+    this.syncPlanes()
+  }
+
+  /** 建構平面由 journal 推導。 */
+  private syncPlanes(): void {
+    this.planeCache = derivePlanes(this.activeOps().filter((_, i) => !(i in this.failures)))
+    useAppStore
+      .getState()
+      .setPlanes([...this.planeCache.values()].map((p) => ({ planeId: p.planeId, name: p.name })))
+    this.deps.viewport()?.syncPlanes(this.planeCache)
   }
 
   /** 外觀由 journal 推導；只計成功套用的 op 與仍存在的本體。 */
