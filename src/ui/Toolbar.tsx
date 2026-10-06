@@ -1,12 +1,12 @@
-// 左緣直立工具列，依 Shapr3D 的分群：搜尋 / 草圖 / 新增 / 變形 / 工具。
-// M1：「新增」子選單可建立 primitive（之後由草圖→擠出取代）；其餘仍是佔位。
+// 左緣常駐工具列（Shapr3D 式，無模式）：選取 + 四個草圖工具隨時可切換，
+// 選了草圖工具後直接用筆在任何平面或地面上畫——不需要進入/離開草圖模式。
+// 下方「新增」選單：方塊、圓柱、匯入 STEP。
 
 import { useRef, useState, type ReactElement } from 'react'
 import { importStepFile } from '../app/bodyActions.ts'
 import { createBox, createCylinder } from '../app/createPrimitives.ts'
-import { enterSketchMode } from '../app/sketchActions.ts'
-import { useAppStore } from '../state/appStore.ts'
-import { SketchToolbar } from './SketchToolbar.tsx'
+import { selectTool } from '../app/viewportHost.ts'
+import { useAppStore, type ActiveTool } from '../state/appStore.ts'
 
 const stroke = {
   fill: 'none',
@@ -16,39 +16,53 @@ const stroke = {
   strokeLinejoin: 'round',
 } as const
 
-const ICONS: Record<string, ReactElement> = {
-  search: (
+const TOOL_ICONS: Record<ActiveTool, ReactElement> = {
+  select: (
     <svg viewBox="0 0 24 24" {...stroke}>
-      <circle cx="11" cy="11" r="6" />
-      <path d="M15.5 15.5 L20 20" />
+      <path d="M6 4 L18 12 L12.5 13.2 L15.5 19.5 L13 20.6 L10 14.3 L6 18 Z" />
     </svg>
   ),
-  sketch: (
+  line: (
     <svg viewBox="0 0 24 24" {...stroke}>
-      <path d="M4 18 C8 8, 14 8, 20 6" />
-      <circle cx="4" cy="18" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="20" cy="6" r="1.6" fill="currentColor" stroke="none" />
+      <path d="M5 19 L19 5" />
+      <circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="5" r="1.6" fill="currentColor" stroke="none" />
     </svg>
   ),
+  arc: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M5 19 A 14 14 0 0 1 19 5" />
+      <circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="5" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  rect: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <rect x="5" y="7" width="14" height="10" rx="1" />
+    </svg>
+  ),
+  circle: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <circle cx="12" cy="12" r="7" />
+    </svg>
+  ),
+}
+
+const TOOL_LABELS: Record<ActiveTool, string> = {
+  select: '選取（V）',
+  line: '直線（L）',
+  arc: '圓弧（A）——先拉弦，再拉弧度',
+  rect: '矩形（R）',
+  circle: '圓（C）',
+}
+
+const TOOLS: ActiveTool[] = ['select', 'line', 'arc', 'rect', 'circle']
+
+const ADD_ICONS: Record<string, ReactElement> = {
   add: (
     <svg viewBox="0 0 24 24" {...stroke}>
       <rect x="5" y="5" width="14" height="14" rx="3" />
       <path d="M12 9 V15 M9 12 H15" />
-    </svg>
-  ),
-  transform: (
-    <svg viewBox="0 0 24 24" {...stroke}>
-      <path d="M12 4 V20 M4 12 H20" />
-      <path d="M12 4 L9.5 6.5 M12 4 L14.5 6.5" />
-      <path d="M12 20 L9.5 17.5 M12 20 L14.5 17.5" />
-      <path d="M4 12 L6.5 9.5 M4 12 L6.5 14.5" />
-      <path d="M20 12 L17.5 9.5 M20 12 L17.5 14.5" />
-    </svg>
-  ),
-  tools: (
-    <svg viewBox="0 0 24 24" {...stroke}>
-      <path d="M14.5 6.5 a4 4 0 1 0 3 3 L21 13 l-2 2 -3.5-3.5" />
-      <path d="M5 19 l4.5-4.5" />
     </svg>
   ),
   box: (
@@ -73,53 +87,48 @@ const ICONS: Record<string, ReactElement> = {
 }
 
 export function Toolbar() {
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
   const kernelReady = useAppStore((s) => s.kernelStatus === 'ready')
-  const sketchActive = useAppStore((s) => s.sketchActive)
+  const activeTool = useAppStore((s) => s.activeTool)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  if (sketchActive) return <SketchToolbar />
 
   const runAndCollapse = (action: () => Promise<void>) => {
     void action()
-    setExpanded(null)
+    setAddOpen(false)
   }
 
   return (
     <div className="toolbar">
       <div className="toolbar-group">
-        <button className="toolbar-button" title="搜尋" aria-label="搜尋">
-          {ICONS.search}
-        </button>
+        {TOOLS.map((tool) => (
+          <button
+            key={tool}
+            className={`toolbar-button ${activeTool === tool ? 'toolbar-button-active' : ''}`}
+            title={TOOL_LABELS[tool]}
+            aria-label={TOOL_LABELS[tool]}
+            aria-pressed={activeTool === tool}
+            disabled={tool !== 'select' && !kernelReady}
+            onClick={() => selectTool(tool)}
+          >
+            {TOOL_ICONS[tool]}
+          </button>
+        ))}
       </div>
       <div className="toolbar-group">
-        <button
-          className="toolbar-button"
-          title="草圖"
-          aria-label="草圖"
-          disabled={!kernelReady}
-          onClick={() => void enterSketchMode()}
-        >
-          {ICONS.sketch}
-        </button>
         <div className="toolbar-flyout-anchor">
           <button
-            className={`toolbar-button ${expanded === 'add' ? 'toolbar-button-active' : ''}`}
+            className={`toolbar-button ${addOpen ? 'toolbar-button-active' : ''}`}
             title="新增"
             aria-label="新增"
-            aria-expanded={expanded === 'add'}
-            onClick={() => setExpanded(expanded === 'add' ? null : 'add')}
+            aria-expanded={addOpen}
+            onClick={() => setAddOpen(!addOpen)}
           >
-            {ICONS.add}
+            {ADD_ICONS.add}
           </button>
-          {expanded === 'add' && (
+          {addOpen && (
             <div className="toolbar-flyout">
-              <button
-                className="flyout-item"
-                disabled={!kernelReady}
-                onClick={() => runAndCollapse(createBox)}
-              >
-                {ICONS.box}
+              <button className="flyout-item" disabled={!kernelReady} onClick={() => runAndCollapse(createBox)}>
+                {ADD_ICONS.box}
                 <span>方塊</span>
               </button>
               <button
@@ -127,7 +136,7 @@ export function Toolbar() {
                 disabled={!kernelReady}
                 onClick={() => runAndCollapse(createCylinder)}
               >
-                {ICONS.cylinder}
+                {ADD_ICONS.cylinder}
                 <span>圓柱</span>
               </button>
               <button
@@ -135,10 +144,10 @@ export function Toolbar() {
                 disabled={!kernelReady}
                 onClick={() => {
                   fileInputRef.current?.click()
-                  setExpanded(null)
+                  setAddOpen(false)
                 }}
               >
-                {ICONS.importFile}
+                {ADD_ICONS.importFile}
                 <span>匯入 STEP…</span>
               </button>
             </div>
@@ -155,12 +164,6 @@ export function Toolbar() {
             }}
           />
         </div>
-        <button className="toolbar-button" title="變形" aria-label="變形">
-          {ICONS.transform}
-        </button>
-        <button className="toolbar-button" title="工具" aria-label="工具">
-          {ICONS.tools}
-        </button>
       </div>
     </div>
   )

@@ -28,14 +28,25 @@ export interface SnapOptions {
   gridSpacing: number | null
   /** 筆劃起點，供水平/垂直對齊；null 關閉。 */
   axisAnchor: Vec2 | null
+  /** 草圖外的吸附點（在面上繪圖時，模型落在該平面上的頂點與邊中點）。 */
+  extraPoints?: { endpoints: Vec2[]; midpoints: Vec2[] }
 }
 
 export function snapPoint(raw: Vec2, opts: SnapOptions): SnapResult {
-  const { curves, tolerance, gridSpacing, axisAnchor } = opts
+  const { curves, tolerance, gridSpacing, axisAnchor, extraPoints } = opts
 
   const byPriority: Array<{ kind: SnapKind; points: Vec2[] }> = [
-    { kind: 'endpoint', points: curves.flatMap(curveEndpoints) },
-    { kind: 'midpoint', points: curves.flatMap((c) => curveMidAndCenter(c).midpoints) },
+    {
+      kind: 'endpoint',
+      points: [...curves.flatMap(curveEndpoints), ...(extraPoints?.endpoints ?? [])],
+    },
+    {
+      kind: 'midpoint',
+      points: [
+        ...curves.flatMap((c) => curveMidAndCenter(c).midpoints),
+        ...(extraPoints?.midpoints ?? []),
+      ],
+    },
     { kind: 'center', points: curves.flatMap((c) => curveMidAndCenter(c).centers) },
   ]
   for (const { kind, points } of byPriority) {

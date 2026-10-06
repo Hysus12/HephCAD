@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { KernelStatus } from '../kernel/KernelClient.ts'
+import type { BoolMode } from '../doc/journal.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 
 export interface BodyEntry {
@@ -8,22 +9,75 @@ export interface BodyEntry {
   visible: boolean
 }
 
-export type SelectionKind = 'body' | 'face' | 'edge'
+export interface FolderEntry {
+  folderId: number
+  name: string
+  bodyIds: number[]
+  auto: boolean
+  /** 本地視圖狀態：展開/收合（跨推導保留）。 */
+  expanded: boolean
+}
 
-export interface SelectionItem {
+export interface PlaneEntry {
+  planeId: number
+  name: string
+  visible: boolean
+}
+
+export interface SketchEntry {
+  sketchId: number
+  name: string
+  visible: boolean
+  curveCount: number
+}
+
+/** 'select' = 選取/轉視角；其餘是草圖工具（筆一落下就畫，不需要進入任何模式）。 */
+export type ActiveTool = 'select' | ToolKind
+
+export type BodySelection = {
+  kind: 'body' | 'face' | 'edge'
   bodyId: number
-  kind: SelectionKind
   /** face/edge 的拓撲索引；body 選取固定為 0。 */
   topoId: number
 }
 
+export type SketchSelection =
+  | { kind: 'curve'; sketchId: number; curveId: number }
+  | { kind: 'region'; sketchId: number; regionIndex: number }
+
+export type SelectionItem = BodySelection | SketchSelection
+
+export function isBodySelection(item: SelectionItem): item is BodySelection {
+  return item.kind === 'body' || item.kind === 'face' || item.kind === 'edge'
+}
+
 export function selectionKey(item: SelectionItem): string {
-  return `${item.bodyId}:${item.kind}:${item.topoId}`
+  switch (item.kind) {
+    case 'curve':
+      return `s${item.sketchId}:curve:${item.curveId}`
+    case 'region':
+      return `s${item.sketchId}:region:${item.regionIndex}`
+    default:
+      return `${item.bodyId}:${item.kind}:${item.topoId}`
+  }
+}
+
+/** 拖曳中/剛完成的尺寸標籤（螢幕座標）。editable 時點擊可輸入精確數值。 */
+export interface DimensionLabel {
+  text: string
+  x: number
+  y: number
+  editable: boolean
+  value: number
+  /** 主數值的單位（鍵盤顯示用），預設 mm；旋轉是 °。 */
+  unit?: string
+  /** 第二個可點的參數（倒角角度）。 */
+  secondary?: { text: string; value: number; unit: string; editable: boolean }
 }
 
 /**
- * App 層 UI 狀態。文件/幾何狀態（M5 的 journal）之後獨立成 document store，
- * 不要混進來。
+ * App 層 UI 狀態。文件/幾何狀態在 DocumentController（journal），
+ * 這裡只放畫面需要的投影。
  */
 export interface AppState {
   /** 網格間距（mm），右上角 chip 顯示用。 */
@@ -31,7 +85,7 @@ export interface AppState {
   snapEnabled: boolean
   toggleSnap: () => void
 
-  /** 剖面視圖（v1：固定 Y=0 前向剖切、無蓋）。 */
+  /** 剖面視圖（移除朝向相機的一半）。 */
   sectionActive: boolean
   toggleSection: () => void
 
@@ -45,27 +99,83 @@ export interface AppState {
   removeBody: (bodyId: number) => void
   setBodyVisible: (bodyId: number, visible: boolean) => void
 
+  /** 資料夾（由 journal 推導；展開狀態是本地視圖狀態）。 */
+  /** 與預設不同的本體外觀（bodyId → 顏色/透明度）。 */
+  materials: Record<number, { color: string; opacity: number }>
+  setMaterials: (materials: Record<number, { color: string; opacity: number }>) => void
+  /** 外觀面板（情境列的「外觀」）是否展開。 */
+  appearanceOpen: boolean
+  setAppearanceOpen: (open: boolean) => void
+  folders: FolderEntry[]
+  setFolders: (list: Omit<FolderEntry, 'expanded'>[]) => void
+  toggleFolderExpanded: (folderId: number) => void
+
+  /** 建構平面（由 journal 推導；顯示/隱藏是本地視圖狀態）。 */
+  planes: PlaneEntry[]
+  setPlanes: (list: Omit<PlaneEntry, 'visible'>[]) => void
+  setPlaneVisible: (planeId: number, visible: boolean) => void
+  /** 目前用來畫草圖的建構平面（雙擊平面選取）；null＝依點到的面/地面。 */
+  activePlaneId: number | null
+  setActivePlaneId: (planeId: number | null) => void
+
+  /** 文件中的草圖（由 journal 推導；顯示/隱藏是本地視圖狀態，跨推導保留）。 */
+  sketches: SketchEntry[]
+  setSketches: (list: Omit<SketchEntry, 'visible'>[]) => void
+  setSketchVisible: (sketchId: number, visible: boolean) => void
+
   /** 目前選取（tap 累加/再點取消；點空白清空）。 */
   selection: SelectionItem[]
   toggleSelection: (item: SelectionItem) => void
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
 
-  /** 情境工具模式（依選取出現：移動/圓角/倒角/抽殼）。選取變更即重置。 */
-  toolMode: 'move' | 'fillet' | 'chamfer' | 'shell' | null
+  /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
+  toolMode: 'move' | 'shell' | 'pattern' | 'plane' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
-  /** 草圖模式。 */
-  sketchActive: boolean
-  sketchTool: ToolKind
-  sketchRegionCount: number
-  setSketchActive: (active: boolean) => void
-  setSketchTool: (tool: ToolKind) => void
-  setSketchRegionCount: (count: number) => void
+  activeTool: ActiveTool
+  /** 使用者是否親自選過工具（還沒選過時，偵測到筆會自動切到直線）。 */
+  toolChosen: boolean
+  setActiveTool: (tool: ActiveTool, explicit?: boolean) => void
 
-  /** 完成草圖後場景中可拖曳擠出的區域數。 */
-  extrudableRegionCount: number
-  setExtrudableRegionCount: (count: number) => void
+  /** 偵測到 Apple Pencil 後：筆畫圖、手指只轉視角。 */
+  pencilDetected: boolean
+  setPencilDetected: () => void
+
+  dimension: DimensionLabel | null
+  setDimension: (label: DimensionLabel | null) => void
+  /** 數字鍵盤正在編輯哪個欄位（null = 關閉）。 */
+  keypad: 'primary' | 'secondary' | null
+  setKeypad: (target: 'primary' | 'secondary' | null) => void
+
+  /** 陣列設定：線性/圓形、總數（含原本體）、線性以「間距」或「總長」定義。 */
+  patternType: 'linear' | 'circular'
+  patternCount: number
+  patternDefinition: 'spacing' | 'total'
+  setPatternType: (type: 'linear' | 'circular') => void
+  setPatternCount: (count: number) => void
+  setPatternDefinition: (definition: 'spacing' | 'total') => void
+
+  /** 擠出後的布林徽章（聯集/新本體/減去/交集）；mode 是目前生效的那個。 */
+  boolBadge: { mode: BoolMode } | null
+  setBoolBadge: (badge: { mode: BoolMode } | null) => void
+  /** 拷貝徽章（Shapr3D）：開啟時移動/旋轉的是副本，原本體不動。 */
+  copyMode: boolean
+  toggleCopyMode: () => void
+  /** 獨立布林是否保留原本體（結果成為新本體）。 */
+  keepOriginals: boolean
+  toggleKeepOriginals: () => void
+
+  /** 拖曳倒角時使用的角度（度）；預設 45＝兩側等距。 */
+  chamferAngleDeg: number
+  setChamferAngle: (deg: number) => void
+
+  toast: { text: string; id: number } | null
+  showToast: (text: string) => void
+  dismissToast: () => void
+
+  historyOpen: boolean
+  toggleHistory: () => void
 
   /** 歷程面板：journal 標籤與游標（cursor 之後的是可 redo 的灰色項）。 */
   journalLabels: string[]
@@ -78,6 +188,8 @@ export interface AppState {
     failures: Record<number, string>,
   ) => void
 }
+
+let toastSeq = 0
 
 export const useAppStore = create<AppState>()((set) => ({
   gridSpacingMm: 5,
@@ -97,11 +209,56 @@ export const useAppStore = create<AppState>()((set) => ({
   removeBody: (bodyId) =>
     set((s) => ({
       bodies: s.bodies.filter((b) => b.bodyId !== bodyId),
-      selection: s.selection.filter((item) => item.bodyId !== bodyId),
+      selection: s.selection.filter((item) => !isBodySelection(item) || item.bodyId !== bodyId),
     })),
   setBodyVisible: (bodyId, visible) =>
     set((s) => ({
       bodies: s.bodies.map((b) => (b.bodyId === bodyId ? { ...b, visible } : b)),
+    })),
+
+  materials: {},
+  setMaterials: (materials) => set({ materials }),
+  appearanceOpen: false,
+  setAppearanceOpen: (open) => set({ appearanceOpen: open }),
+  folders: [],
+  setFolders: (list) =>
+    set((s) => {
+      const expanded = new Map(s.folders.map((f) => [f.folderId, f.expanded]))
+      return { folders: list.map((f) => ({ ...f, expanded: expanded.get(f.folderId) ?? true })) }
+    }),
+  toggleFolderExpanded: (folderId) =>
+    set((s) => ({
+      folders: s.folders.map((f) => (f.folderId === folderId ? { ...f, expanded: !f.expanded } : f)),
+    })),
+
+  sketches: [],
+  setSketches: (list) =>
+    set((s) => {
+      const visibility = new Map(s.sketches.map((e) => [e.sketchId, e.visible]))
+      const alive = new Set(list.map((e) => e.sketchId))
+      return {
+        sketches: list.map((e) => ({ ...e, visible: visibility.get(e.sketchId) ?? true })),
+        // 草圖內容變動後，舊的區域索引不再可靠；消失的草圖連同選取一起移除
+        selection: s.selection.filter((item) => isBodySelection(item) || alive.has(item.sketchId)),
+      }
+    }),
+  planes: [],
+  setPlanes: (list) =>
+    set((s) => {
+      const visibility = new Map(s.planes.map((e) => [e.planeId, e.visible]))
+      const alive = new Set(list.map((e) => e.planeId))
+      return {
+        planes: list.map((e) => ({ ...e, visible: visibility.get(e.planeId) ?? true })),
+        activePlaneId: s.activePlaneId !== null && alive.has(s.activePlaneId) ? s.activePlaneId : null,
+      }
+    }),
+  setPlaneVisible: (planeId, visible) =>
+    set((s) => ({ planes: s.planes.map((e) => (e.planeId === planeId ? { ...e, visible } : e)) })),
+  activePlaneId: null,
+  setActivePlaneId: (planeId) => set({ activePlaneId: planeId }),
+  setSketchVisible: (sketchId, visible) =>
+    set((s) => ({
+      sketches: s.sketches.map((e) => (e.sketchId === sketchId ? { ...e, visible } : e)),
     })),
 
   selection: [],
@@ -122,16 +279,51 @@ export const useAppStore = create<AppState>()((set) => ({
   toolMode: null,
   setToolMode: (mode) => set({ toolMode: mode }),
 
-  sketchActive: false,
-  sketchTool: 'line',
-  sketchRegionCount: 0,
-  setSketchActive: (active) =>
-    set(active ? { sketchActive: true } : { sketchActive: false, sketchRegionCount: 0, sketchTool: 'line' }),
-  setSketchTool: (tool) => set({ sketchTool: tool }),
-  setSketchRegionCount: (count) => set({ sketchRegionCount: count }),
+  activeTool: 'select',
+  toolChosen: false,
+  setActiveTool: (tool, explicit = true) =>
+    set((s) => ({ activeTool: tool, toolChosen: s.toolChosen || explicit })),
 
-  extrudableRegionCount: 0,
-  setExtrudableRegionCount: (count) => set({ extrudableRegionCount: count }),
+  pencilDetected: false,
+  setPencilDetected: () =>
+    set((s) =>
+      s.pencilDetected
+        ? {}
+        : {
+            pencilDetected: true,
+            // 第一次拿起筆、且使用者還沒選過工具：直接進入直線工具（Shapr3D 的預設）
+            activeTool: s.toolChosen ? s.activeTool : 'line',
+          },
+    ),
+
+  dimension: null,
+  setDimension: (label) => set({ dimension: label }),
+  keypad: null,
+  setKeypad: (target) => set({ keypad: target }),
+
+  boolBadge: null,
+  setBoolBadge: (badge) => set({ boolBadge: badge }),
+  patternType: 'linear',
+  patternCount: 3,
+  patternDefinition: 'spacing',
+  setPatternType: (type) => set({ patternType: type }),
+  setPatternCount: (count) => set({ patternCount: Math.max(2, Math.min(50, Math.round(count))) }),
+  setPatternDefinition: (definition) => set({ patternDefinition: definition }),
+
+  copyMode: false,
+  toggleCopyMode: () => set((s) => ({ copyMode: !s.copyMode })),
+  keepOriginals: false,
+  toggleKeepOriginals: () => set((s) => ({ keepOriginals: !s.keepOriginals })),
+
+  chamferAngleDeg: 45,
+  setChamferAngle: (deg) => set({ chamferAngleDeg: deg }),
+
+  toast: null,
+  showToast: (text) => set({ toast: { text, id: ++toastSeq } }),
+  dismissToast: () => set({ toast: null }),
+
+  historyOpen: false,
+  toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
 
   journalLabels: [],
   journalCursor: 0,

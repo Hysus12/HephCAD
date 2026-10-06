@@ -8,7 +8,8 @@ import {
 import type { MeshData } from '../kernel/protocol.ts'
 import type { Vec3Tuple } from '../sketch/model.ts'
 
-const PREVIEW_COLOR = 0x4a8df0
+const ADD_COLOR = 0x4a8df0
+const CUT_COLOR = 0xe0655f
 
 /**
  * 拖曳擠出時的幽靈稜柱：底/頂 cap 用區域的三角化，側壁沿輪廓折線拉出。
@@ -23,7 +24,16 @@ export class ExtrudePreview {
   private readonly base: Float32Array
   private readonly normal: Vec3Tuple
 
-  constructor(scene: Scene, region: MeshData, normal: Vec3Tuple) {
+  /**
+   * cutWhenNegative：往反方向拖代表減料（有宿主的擠出、推拉面）——預覽改紅色。
+   * 預覽不做深度測試，壓進實體內部的切除體積也看得到。
+   */
+  constructor(
+    scene: Scene,
+    region: MeshData,
+    normal: Vec3Tuple,
+    private readonly cutWhenNegative = false,
+  ) {
     this.normal = normal
 
     const capVerts = region.positions.length / 3
@@ -75,10 +85,11 @@ export class ExtrudePreview {
     this.mesh = new Mesh(
       this.geometry,
       new MeshBasicMaterial({
-        color: PREVIEW_COLOR,
+        color: ADD_COLOR,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.3,
         depthWrite: false,
+        depthTest: false,
         side: 2, // DoubleSide
       }),
     )
@@ -97,6 +108,8 @@ export class ExtrudePreview {
       this.positions[i * 3 + 2] = this.base[i * 3 + 2] + nz * off
     }
     this.geometry.getAttribute('position').needsUpdate = true
+    const cutting = this.cutWhenNegative && height < 0
+    ;(this.mesh.material as MeshBasicMaterial).color.setHex(cutting ? CUT_COLOR : ADD_COLOR)
   }
 
   dispose(): void {
