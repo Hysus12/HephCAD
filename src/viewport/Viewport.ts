@@ -15,7 +15,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three'
-import type { JournalOp } from '../doc/journal.ts'
+import type { BoolMode, JournalOp } from '../doc/journal.ts'
 import { findSketchOnPlane, type SketchEntity } from '../doc/sketches.ts'
 import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
@@ -104,6 +104,10 @@ interface Manipulation {
   label: (value: number) => string
   /** 圓角/倒角合一：正值＝圓角、負值＝倒角（倒角時才有角度欄位）。 */
   blend: boolean
+  /** 擠出的布林徽章選擇（build 的閉包讀取它）；mode 未設＝自動。 */
+  boolRef?: { mode?: BoolMode }
+  /** 自動模式在此高度下會是哪一種（徽章顯示目前生效的模式）。 */
+  autoBool?: (value: number) => BoolMode
   /** 圓角/倒角/抽殼的 kernel 預覽節流。 */
   param: { inFlight: boolean; pending: number | null; ghost: BodyObject | null } | null
   minValue: number
@@ -150,6 +154,8 @@ export class Viewport {
   private lastDimensionPx: Px | null = null
   /** 目前的尺寸標籤是否屬於「選取的草圖線」（換選取時才需要清掉）。 */
   private curveDimensionOwner = false
+  /** 剛擠出、徽章可改布林模式的那次操作。 */
+  private armedExtrude: { m: Manipulation; value: number; anchor: Vector3 } | null = null
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -407,6 +413,24 @@ export class Viewport {
     if (apply) await apply(value)
   }
 
+  /** 擠出後點徽章：改成聯集/新本體/減去/交集，取代剛才那一步。 */
+  async applyBoolMode(mode: BoolMode): Promise<void> {
+    const armed = this.armedExtrude
+    if (!armed?.m.boolRef || !this.host) return
+    const previous = armed.m.boolRef.mode
+    armed.m.boolRef.mode = mode
+    const op = armed.m.build(armed.value)
+    if (!op) return
+    try {
+      await this.host.amend(op)
+    } catch (e) {
+      armed.m.boolRef.mode = previous // amendLast 已還原原本那一步
+      useAppStore.getState().showToast(`布林運算失敗：${e instanceof Error ? e.message : String(e)}`)
+    }
+    // 文件重建會清掉選取、連帶清掉標籤與徽章：不論成敗都重新掛上
+    this.armDimension(armed.m, armed.value, armed.anchor)
+  }
+
   /** 第二欄位（倒角角度）輸入了精確值。 */
   async applySecondaryValue(value: number): Promise<void> {
     const apply = this.dimension?.secondary?.apply
@@ -621,6 +645,7 @@ export class Viewport {
         const region = layer?.region(action.regionIndex)
         if (!layer || !region) return false
         const { plane, curves, hostBodyId } = layer.entity
+        const ref: { mode?: BoolMode } = {}
         manip = {
           preview: new ExtrudePreview(this.scene, region.mesh, plane.normal, hostBodyId !== null),
           build: (height) =>
@@ -637,7 +662,10 @@ export class Viewport {
                   name: null,
                   sketchId: action.sketchId,
                   regionKey: region.key,
+                  ...(ref.mode ? { boolMode: ref.mode } : {}),
                 },
+          boolRef: ref,
+          autoBool: (h) => (hostBodyId !== null ? (h >= 0 ? 'union' : 'subtract') : 'new'),
           label: formatSigned,
           param: null,
           blend: false,
@@ -789,6 +817,10 @@ export class Viewport {
    * 每次修改完會重新掛上，所以能連續微調（圓角 ↔ 倒角、改角度…）。
    */
   private armDimension(m: Manipulation, value: number, anchor: Vector3): void {
+    if (m.boolRef && m.autoBool) {
+      this.armedExtrude = { m, value, anchor }
+      useAppStore.getState().setBoolBadge({ mode: m.boolRef.mode ?? m.autoBool(value) })
+    }
     const amendWith = async (next: JournalOp | null, nextValue: number) => {
       if (!next || !this.host) return
       try {
@@ -1017,7 +1049,13 @@ export class Viewport {
     if (tapCount >= 2) {
       // 雙擊：選整個主體 / 整張草圖
       if (isBodySelection(item)) {
-        store.replaceSelection([{ bodyId: item.bodyId, kind: 'body', topoId: 0 }])
+        const whole: SelectionItem = { bodyId: item.bodyId, kind: 'body', topoId: 0 }
+        // 已經在選本體時，雙擊另一個本體是「加選/取消」（布林運算要選兩個以上）
+        const onlyBodies =
+          store.selection.length > 0 &&
+          store.selection.every((s) => isBodySelection(s) && s.kind === 'body')
+        if (onlyBodies) store.toggleSelection(whole)
+        else store.replaceSelection([whole])
       } else {
         const layer = this.sketchLayers.get(item.sketchId)
         if (layer) {
@@ -1168,6 +1206,10 @@ export class Viewport {
 
   private clearDimension(): void {
     this.curveDimensionOwner = false
+    if (this.armedExtrude) {
+      this.armedExtrude = null
+      useAppStore.getState().setBoolBadge(null)
+    }
     if (!this.dimension && !this.dimensionApply) return
     this.dimension = null
     this.dimensionApply = null

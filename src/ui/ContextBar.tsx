@@ -7,7 +7,7 @@
 // 量測（長度/面積/體積）跟著 body 類選取一起顯示。
 
 import { useEffect, useState } from 'react'
-import { copySelectedBody } from '../app/bodyActions.ts'
+import { applyBoolean, copySelectedBody } from '../app/bodyActions.ts'
 import { services } from '../app/services.ts'
 import { deleteSelection } from '../app/viewportHost.ts'
 import type { MeasureResult } from '../kernel/protocol.ts'
@@ -33,6 +33,8 @@ export function ContextBar() {
   const selection = useAppStore((s) => s.selection)
   const toolMode = useAppStore((s) => s.toolMode)
   const setToolMode = useAppStore((s) => s.setToolMode)
+  const keepOriginals = useAppStore((s) => s.keepOriginals)
+  const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
   const [measure, setMeasure] = useState<string[]>([])
 
   const bodyItems = selection.filter(isBodySelection)
@@ -62,6 +64,7 @@ export function ContextBar() {
   let canDelete = false
   let canLookAt = false
   let canCopy = false
+  let canBoolean = false
 
   if (only('region')) {
     hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）' : null
@@ -81,6 +84,9 @@ export function ContextBar() {
     if (selection.length === 1) {
       modes.push({ mode: 'move', label: '移動' })
       canCopy = true
+    } else {
+      canBoolean = true
+      hint = '先選的本體是目標；本體需要重疊'
     }
     canDelete = true
   }
@@ -103,6 +109,26 @@ export function ContextBar() {
         <button className="context-button" onClick={() => void copySelectedBody()}>
           複製
         </button>
+      )}
+      {canBoolean && (
+        <>
+          <button className="context-button" onClick={() => void applyBoolean('union')}>
+            聯集
+          </button>
+          <button className="context-button" onClick={() => void applyBoolean('subtract')}>
+            減去
+          </button>
+          <button className="context-button" onClick={() => void applyBoolean('intersect')}>
+            交集
+          </button>
+          <button
+            className={`context-button ${keepOriginals ? 'context-button-active' : ''}`}
+            aria-pressed={keepOriginals}
+            onClick={toggleKeepOriginals}
+          >
+            保留原本體
+          </button>
+        </>
       )}
       {canLookAt && (
         <button className="context-button" onClick={() => services.viewport?.lookAtSelection()}>

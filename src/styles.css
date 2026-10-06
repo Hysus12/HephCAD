@@ -649,3 +649,34 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* ---- 擠出布林徽章 ---- */
+
+.bool-badge {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(20, 20, 22, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.bool-badge-option {
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.bool-badge-active {
+  background: rgba(74, 141, 240, 0.3);
+  color: #cfe0ff;
+}

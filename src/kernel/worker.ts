@@ -13,7 +13,7 @@ import type {
   TopTools_IndexedDataMapOfShapeListOfShape,
   STEPControl_StepModelType,
 } from 'opencascade.js/dist/opencascade.full.js'
-import type { JournalOp, Translation } from '../doc/journal.ts'
+import type { BoolMode, JournalOp, Translation } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import {
   isFatalKernelError,
@@ -284,23 +284,110 @@ function replaceBodyShape(
   bodies.set(bodyId, next)
 }
 
-function booleanWithHost(
+type BoolKind = 'union' | 'subtract' | 'intersect'
+
+/**
+ * a ⊕ b 的結果（新 shape，已合併共面）。**不會刪除 a 或 b**——呼叫端決定誰要釋放，
+ * 這樣同一個工具體可以對多個目標重複使用。
+ */
+function booleanShape(
   oc: OpenCascadeInstance,
-  host: TopoDS_Shape,
-  tool: TopoDS_Shape,
-  fuse: boolean,
+  a: TopoDS_Shape,
+  b: TopoDS_Shape,
+  kind: BoolKind,
 ): TopoDS_Shape {
   const progress = new oc.Message_ProgressRange_1()
-  const op = fuse
-    ? new oc.BRepAlgoAPI_Fuse_3(host, tool, progress)
-    : new oc.BRepAlgoAPI_Cut_3(host, tool, progress)
+  const op =
+    kind === 'union'
+      ? new oc.BRepAlgoAPI_Fuse_3(a, b, progress)
+      : kind === 'subtract'
+        ? new oc.BRepAlgoAPI_Cut_3(a, b, progress)
+        : new oc.BRepAlgoAPI_Common_3(a, b, progress)
   const done = op.IsDone()
   const merged = done ? op.Shape() : null
   op.delete()
   progress.delete()
-  tool.delete()
   if (!merged) throw new Error('布林運算失敗')
   return unifySameDomain(oc, merged)
+}
+
+function countSolids(oc: OpenCascadeInstance, shape: TopoDS_Shape): number {
+  const explorer = new oc.TopExp_Explorer_2(
+    shape,
+    oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum,
+    oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum,
+  )
+  let n = 0
+  while (explorer.More()) {
+    n++
+    explorer.Next()
+  }
+  explorer.delete()
+  return n
+}
+
+function volumeOf(oc: OpenCascadeInstance, shape: TopoDS_Shape): number {
+  const props = new oc.GProp_GProps_1()
+  oc.BRepGProp.VolumeProperties_1(shape, props, false, false, false)
+  const v = props.Mass()
+  props.delete()
+  return v
+}
+
+/** 與 shape 的包圍盒有交集的本體 id（擠出沒有宿主時，自動找出被布林運算的目標）。 */
+function overlappingBodyIds(oc: OpenCascadeInstance, shape: TopoDS_Shape): number[] {
+  const box = new oc.Bnd_Box_1()
+  oc.BRepBndLib.Add(shape, box, false)
+  const ids: number[] = []
+  for (const [id, body] of bodies) {
+    const other = new oc.Bnd_Box_1()
+    oc.BRepBndLib.Add(body, other, false)
+    if (!box.IsOut_4(other)) ids.push(id)
+    other.delete()
+  }
+  box.delete()
+  return ids
+}
+
+/** 對一串工具體依序做布林；中間結果自動釋放。檢查結果有效（聯集要連成單一實體等）。 */
+function chainBoolean(
+  oc: OpenCascadeInstance,
+  base: TopoDS_Shape,
+  tools: TopoDS_Shape[],
+  kind: BoolKind,
+): TopoDS_Shape {
+  let acc: TopoDS_Shape = base
+  let owned = false
+  const baseVolume = kind === 'subtract' ? volumeOf(oc, base) : 0
+  try {
+    for (const tool of tools) {
+      const next = booleanShape(oc, acc, tool, kind)
+      if (owned) acc.delete()
+      acc = next
+      owned = true
+    }
+  } catch (e) {
+    if (owned) acc.delete()
+    throw e
+  }
+  if (!owned) throw new Error('布林運算需要至少兩個本體')
+  const fail = (message: string): never => {
+    acc.delete()
+    throw new Error(message)
+  }
+  if (acc.IsNull()) return fail('布林運算沒有產生結果')
+  const solids = countSolids(oc, acc)
+  if (solids === 0) {
+    return fail(kind === 'intersect' ? '兩個本體沒有重疊，交集為空' : '布林運算沒有產生實體')
+  }
+  if (kind === 'union' && solids > 1) return fail('本體需要互相重疊或接觸才能聯集')
+  if (
+    kind === 'subtract' &&
+    Math.abs(volumeOf(oc, acc) - baseVolume) < 1e-6 * Math.max(1, baseVolume)
+  ) {
+    return fail('兩個本體沒有重疊，沒有東西可以減去')
+  }
+  return acc
 }
 
 /** 合併共面（同一曲面）的相鄰面與共線邊，產出乾淨的拓撲。失敗時原樣回傳。 */
@@ -369,7 +456,11 @@ function pushPullShape(
   prismMaker.delete()
   vec.delete()
   face.delete()
-  return booleanWithHost(oc, body, prism, distance > 0)
+  try {
+    return chainBoolean(oc, body, [prism], distance > 0 ? 'union' : 'subtract')
+  } finally {
+    prism.delete()
+  }
 }
 
 // ---- journal 執行器 ----
@@ -403,19 +494,79 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
     case 'extrude': {
       if (Math.abs(jop.height) < 1e-3) throw new Error('擠出高度過小')
       const prism = prismFromCurves(oc, jop.plane, jop.curves, jop.regionIndex, jop.height)
-      const host = jop.hostBodyId !== null ? bodies.get(jop.hostBodyId) : undefined
-      if (host && jop.hostBodyId !== null) {
-        const merged = booleanWithHost(oc, host, prism, jop.height >= 0)
-        bodies.set(jop.hostBodyId, merged) // 舊 host 已被 booleanWithHost 讀取，這裡直接替換
-        host.delete()
-        return result(jop, [jop.hostBodyId])
+      const hostId = jop.hostBodyId !== null && bodies.has(jop.hostBodyId) ? jop.hostBodyId : null
+      // 自動：有宿主時依方向聯集/減去，否則新本體（與 Shapr3D 的預設相同）
+      const mode: BoolMode =
+        jop.boolMode ?? (hostId !== null ? (jop.height >= 0 ? 'union' : 'subtract') : 'new')
+
+      if (mode === 'new') {
+        const bodyId = claimBodyId(jop.newBodyId ?? 0)
+        setBody(bodyId, prism)
+        return result(
+          { ...jop, newBodyId: bodyId, name: jop.name ?? `主體 ${bodyId}`, targetBodyIds: [] },
+          [bodyId],
+        )
       }
-      const bodyId = claimBodyId(jop.newBodyId ?? 0)
-      setBody(bodyId, prism)
-      return result(
-        { ...jop, newBodyId: bodyId, name: jop.name ?? `主體 ${bodyId}` },
-        [bodyId],
-      )
+
+      // 目標：已記錄的（重放）→ 宿主 → 與擠出體重疊的所有本體
+      const targets = (
+        jop.targetBodyIds ?? (hostId !== null ? [hostId] : overlappingBodyIds(oc, prism))
+      ).filter((id) => bodies.has(id))
+      if (targets.length === 0) {
+        prism.delete()
+        throw new Error('沒有重疊的本體可以做布林運算')
+      }
+      const recorded = { ...jop, targetBodyIds: targets, newBodyId: null as number | null }
+
+      try {
+        if (mode === 'union') {
+          // 全部併進第一個目標，其餘目標被移除
+          const rest = targets.slice(1).map((id) => bodies.get(id)!)
+          const merged = chainBoolean(oc, bodies.get(targets[0])!, [...rest, prism], 'union')
+          setBody(targets[0], merged)
+          const removed = targets.slice(1)
+          for (const id of removed) {
+            bodies.get(id)?.delete()
+            bodies.delete(id)
+          }
+          return { ...result(recorded, [targets[0]]), removed }
+        }
+        // subtract / intersect：逐一對每個目標套用（先全部算完再替換，失敗時不留半套）
+        const outputs: TopoDS_Shape[] = []
+        try {
+          for (const id of targets) {
+            outputs.push(
+              chainBoolean(oc, bodies.get(id)!, [prism], mode === 'subtract' ? 'subtract' : 'intersect'),
+            )
+          }
+        } catch (e) {
+          for (const out of outputs) out.delete()
+          throw e
+        }
+        targets.forEach((id, i) => setBody(id, outputs[i]))
+        return result(recorded, targets)
+      } finally {
+        prism.delete()
+      }
+    }
+    case 'boolean': {
+      const target = bodies.get(jop.targetId)
+      const tools = jop.toolIds.map((id) => bodies.get(id))
+      if (!target || tools.length === 0 || tools.some((t) => !t)) {
+        throw new Error('找不到要做布林運算的本體')
+      }
+      const merged = chainBoolean(oc, target, tools as TopoDS_Shape[], jop.mode)
+      if (jop.keepOriginals) {
+        const resultId = claimBodyId(jop.resultBodyId)
+        setBody(resultId, merged)
+        return result({ ...jop, resultBodyId: resultId }, [resultId])
+      }
+      setBody(jop.targetId, merged)
+      for (const id of jop.toolIds) {
+        bodies.get(id)?.delete()
+        bodies.delete(id)
+      }
+      return { ...result(jop, [jop.targetId]), removed: [...jop.toolIds] }
     }
     case 'transform': {
       replaceBodyShape(jop.bodyId, (old) => buildModifiedShape(oc, jop, old))

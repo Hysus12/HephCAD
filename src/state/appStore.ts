@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { KernelStatus } from '../kernel/KernelClient.ts'
+import type { BoolMode } from '../doc/journal.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 
 export interface BodyEntry {
@@ -111,6 +112,13 @@ export interface AppState {
   keypad: 'primary' | 'secondary' | null
   setKeypad: (target: 'primary' | 'secondary' | null) => void
 
+  /** 擠出後的布林徽章（聯集/新本體/減去/交集）；mode 是目前生效的那個。 */
+  boolBadge: { mode: BoolMode } | null
+  setBoolBadge: (badge: { mode: BoolMode } | null) => void
+  /** 獨立布林是否保留原本體（結果成為新本體）。 */
+  keepOriginals: boolean
+  toggleKeepOriginals: () => void
+
   /** 拖曳倒角時使用的角度（度）；預設 45＝兩側等距。 */
   chamferAngleDeg: number
   setChamferAngle: (deg: number) => void
@@ -216,6 +224,11 @@ export const useAppStore = create<AppState>()((set) => ({
   setDimension: (label) => set({ dimension: label }),
   keypad: null,
   setKeypad: (target) => set({ keypad: target }),
+
+  boolBadge: null,
+  setBoolBadge: (badge) => set({ boolBadge: badge }),
+  keepOriginals: false,
+  toggleKeepOriginals: () => set((s) => ({ keepOriginals: !s.keepOriginals })),
 
   chamferAngleDeg: 45,
   setChamferAngle: (deg) => set({ chamferAngleDeg: deg }),

@@ -3,6 +3,7 @@ import { documentController, services } from './app/services.ts'
 import { deleteSelection, selectTool } from './app/viewportHost.ts'
 import { KernelClient } from './kernel/KernelClient.ts'
 import { useAppStore, type ActiveTool } from './state/appStore.ts'
+import { BooleanBadge } from './ui/BooleanBadge.tsx'
 import { ContextBar } from './ui/ContextBar.tsx'
 import { DimensionOverlay } from './ui/DimensionOverlay.tsx'
 import { HistoryPanel } from './ui/HistoryPanel.tsx'
@@ -83,6 +84,7 @@ export function App() {
       <KernelStatusPill />
       <ContextBar />
       <DimensionOverlay />
+      <BooleanBadge />
       <Toast />
     </div>
   )

@@ -7,6 +7,16 @@ import type { ToolKind } from '../sketch/tools.ts'
 
 export type Translation = [number, number, number]
 
+/** 擠出的布林徽章（Shapr3D）：聯集 / 新本體 / 減去 / 交集。未指定＝自動（有宿主時依方向聯集或減去，否則新本體）。 */
+export type BoolMode = 'union' | 'new' | 'subtract' | 'intersect'
+
+export const BOOL_LABELS: Record<BoolMode, string> = {
+  union: '聯集',
+  new: '新本體',
+  subtract: '減去',
+  intersect: '交集',
+}
+
 export type JournalOp =
   | {
       kind: 'createBox'
@@ -42,6 +52,27 @@ export type JournalOp =
       /** 來源草圖與區域識別（用來把已擠出的區域從草圖上隱藏；舊文件沒有）。 */
       sketchId?: number
       regionKey?: string
+      /** 布林模式；未指定＝自動。 */
+      boolMode?: BoolMode
+      /**
+       * 被布林運算的本體（首次執行時由 kernel 決定並寫回，重放時沿用）。
+       * 有宿主＝[宿主]；沒有宿主＝與擠出體重疊的所有本體。
+       */
+      targetBodyIds?: number[]
+    }
+  | {
+      /**
+       * 獨立布林：targetId 是保留身分的那一個（先選的），toolIds 是被併入/減去/相交的。
+       * keepOriginals：結果成為新本體（resultBodyId），原本體全部保留；否則結果取代 target、tool 被移除。
+       */
+      kind: 'boolean'
+      mode: Exclude<BoolMode, 'new'>
+      targetId: number
+      toolIds: number[]
+      keepOriginals: boolean
+      /** 0 = 待 kernel 指派（keepOriginals 時才使用）。 */
+      resultBodyId: number
+      name: string
     }
   | {
       /**
@@ -109,11 +140,12 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       return `建立 ${op.name}`
     case 'deleteBody':
       return `刪除 ${nameOf(op.bodyId)}`
-    case 'extrude':
-      if (op.hostBodyId === null) return `擠出 ${Math.abs(op.height).toFixed(1)}mm`
-      return op.height >= 0
-        ? `擠出加料 ${op.height.toFixed(1)}mm`
-        : `擠出切除 ${Math.abs(op.height).toFixed(1)}mm`
+    case 'extrude': {
+      const mm = Math.abs(op.height).toFixed(1)
+      if (op.boolMode) return `擠出（${BOOL_LABELS[op.boolMode]}）${mm}mm`
+      if (op.hostBodyId === null) return `擠出 ${mm}mm`
+      return op.height >= 0 ? `擠出加料 ${op.height.toFixed(1)}mm` : `擠出切除 ${mm}mm`
+    }
     case 'importStep':
       return `匯入 "${op.name}"`
     case 'transform':
@@ -140,6 +172,8 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
     }
     case 'pushPull':
       return `推拉面 ${op.distance >= 0 ? '+' : ''}${op.distance.toFixed(1)}mm`
+    case 'boolean':
+      return `${BOOL_LABELS[op.mode]} ${nameOf(op.targetId)}`
   }
 }
 
@@ -157,8 +191,19 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
         names.delete(op.bodyId)
         break
       case 'extrude':
-        if (op.hostBodyId === null && op.newBodyId !== null) {
+        if (op.newBodyId !== null && op.newBodyId > 0) {
           names.set(op.newBodyId, op.name ?? `主體 ${op.newBodyId}`)
+        }
+        // 聯集到多個本體時，第一個保留、其餘被併掉
+        if (op.boolMode === 'union') {
+          for (const id of (op.targetBodyIds ?? []).slice(1)) names.delete(id)
+        }
+        break
+      case 'boolean':
+        if (op.keepOriginals) {
+          if (op.resultBodyId > 0) names.set(op.resultBodyId, op.name)
+        } else {
+          for (const id of op.toolIds) names.delete(id)
         }
         break
       case 'copyBody':
