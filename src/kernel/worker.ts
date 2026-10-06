@@ -650,7 +650,18 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
     }
     case 'fillet':
     case 'shell': {
-      replaceBodyShape(jop.bodyId, (old) => buildModifiedShape(oc, jop, old))
+      try {
+        replaceBodyShape(jop.bodyId, (old) => buildModifiedShape(oc, jop, old))
+      } catch (e) {
+        // OCCT 的 C++ 例外會以數字（指標）丟出——換成看得懂的訊息
+        if (e instanceof Error) throw e
+        throw new Error(
+          jop.kind === 'shell'
+            ? '抽殼失敗（壁厚可能過大）'
+            : '這些邊無法圓角/倒角（兩側相切的邊不能倒，或距離太大）',
+          { cause: e },
+        )
+      }
       return result(jop, [jop.bodyId])
     }
     case 'copyBody': {

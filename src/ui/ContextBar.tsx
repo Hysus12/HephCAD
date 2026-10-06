@@ -76,6 +76,8 @@ export function ContextBar() {
   let canLookAt = false
   let canCopy = false
   let canBoolean = false
+  let canChain = false
+  let canFaceEdges = false
 
   if (only('region')) {
     hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）' : null
@@ -87,11 +89,13 @@ export function ContextBar() {
     if (selection.length === 1) {
       hint = '拖曳藍色箭頭推拉這個面'
       modes.push({ mode: 'shell', label: '抽殼' })
+      canFaceEdges = true
       modes.push({ mode: 'plane', label: '偏移平面' })
     }
     canLookAt = true
   } else if (only('edge') && sameBody) {
-    hint = '拖曳橘色箭頭：往外拉＝圓角、往內推＝倒角（可點數字輸入，負數＝倒角）'
+    hint = '拖曳橘色箭頭：往外拉＝圓角、往內推＝倒角（可點數字輸入，負數＝倒角）。雙擊邊＝選相切連續的邊'
+    canChain = true
   } else if (only('body')) {
     if (selection.length === 1) {
       modes.push({ mode: 'move', label: '移動' })
@@ -260,6 +264,30 @@ export function ContextBar() {
           }
         >
           投影
+        </button>
+      )}
+      {canChain && (
+        <button
+          className="context-button"
+          title="把選取的邊擴張成相切連續的整串（也可以雙擊邊）"
+          onClick={() => {
+            const first = bodyItems[0]
+            if (first) services.viewport?.selectTangentChain(first.bodyId)
+          }}
+        >
+          相連邊
+        </button>
+      )}
+      {canFaceEdges && (
+        <button
+          className="context-button"
+          title="選取這個面的所有邊，再拖箭頭一次圓角/倒角整圈"
+          onClick={() => {
+            const face = bodyItems[0]
+            if (face) services.viewport?.selectFaceEdges(face.bodyId, face.topoId)
+          }}
+        >
+          面的邊
         </button>
       )}
       {canLookAt && (

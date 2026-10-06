@@ -140,6 +140,12 @@ export interface AppState {
 
   /** 偵測到 Apple Pencil 後：筆畫圖、手指只轉視角。 */
   pencilDetected: boolean
+  /** 手指也能畫草圖（沒有 Apple Pencil 時才需要打開；預設手指只轉視角）。 */
+  fingerDraw: boolean
+  toggleFingerDraw: () => void
+  /** 多選模式：點選＝加入/移出選取，點到面＝整個本體。 */
+  multiSelect: boolean
+  toggleMultiSelect: () => void
   setPencilDetected: () => void
 
   dimension: DimensionLabel | null
@@ -284,6 +290,10 @@ export const useAppStore = create<AppState>()((set) => ({
   setActiveTool: (tool, explicit = true) =>
     set((s) => ({ activeTool: tool, toolChosen: s.toolChosen || explicit })),
 
+  fingerDraw: false,
+  toggleFingerDraw: () => set((s) => ({ fingerDraw: !s.fingerDraw })),
+  multiSelect: false,
+  toggleMultiSelect: () => set((s) => ({ multiSelect: !s.multiSelect })),
   pencilDetected: false,
   setPencilDetected: () =>
     set((s) =>

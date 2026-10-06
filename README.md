@@ -56,12 +56,14 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
   - **Construction planes** — offset a face or a base plane, double-tap a plane to draw on it.
   - **Project** — send model edges or sketch lines onto a construction plane or face; circles and arcs stay exact.
   - **Appearance** — per-body color and an opacity slider, inherited by copies.
+  - **Selecting edges for fillet/chamfer** — double-tap an edge to grab its whole tangent chain (circles, rounded outlines), or select a face and tap "面的邊" to take all of its boundary edges, then drag one arrow. The arrow sits on the visible side of curved edges and points along the bisector of the adjoining faces.
+  - **Multi-select** — the toolbar's multi-select switch makes taps add/remove items and turns a tapped face into its whole body, so Union / Subtract / Intersect are one tap away.
   - **Folders** — group, rename, move, and ungroup bodies in the items panel; undoable and autosaved.
 - **Measurement built into selection**: pick an edge and see its length, a face its area, a body its volume — no separate measure tool.
 - **Section view**: one tap slices the model at its center so you can see inside (no cap faces yet).
 - **Installable PWA**: the service worker precaches the whole app including the 50 MB kernel — second launch on iPad is instant and fully offline.
 - **Crash-proof kernel**: if the WASM kernel aborts (say, out of memory on an iPad), in-flight requests fail fast, the worker restarts, and your model is replayed from the in-memory journal in a few seconds. Ops that no longer succeed on replay are skipped and flagged in the history panel instead of losing the whole document.
-- 157 unit tests across gestures and palm rejection, picking, sketch geometry and derivation, snapping, tools, dimensions, mesh-derived face geometry, extrusion, the document journal, and kernel crash recovery.
+- 166 unit tests across gestures and palm rejection, picking, sketch geometry and derivation, snapping, tools, dimensions, mesh-derived face geometry, extrusion, the document journal, and kernel crash recovery.
 
 > **Honest status:** the Pencil-first interaction was reworked recently and verified with simulated pen/touch events in a browser, not yet on real iPad hardware. Palm-rejection timing, handle sizes, and hover are the likeliest things to need tuning — if you have an iPad and a Pencil, your feedback is the most valuable contribution right now. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is and isn't verified.
 

@@ -2,14 +2,12 @@ import {
   BufferAttribute,
   BufferGeometry,
   Group,
-  LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshBasicMaterial,
   Scene,
 } from 'three'
 import type { BodySelection } from '../state/appStore.ts'
-import type { BodyObject } from './bodyMesh.ts'
+import { createThickLines, EDGE_WIDTH_PX, type BodyObject } from './bodyMesh.ts'
 
 const FACE_COLOR = 0x4a8df0
 const EDGE_COLOR = 0x7ab4ff
@@ -43,7 +41,7 @@ export class SelectionHighlighter {
 
   clear(): void {
     for (const child of [...this.overlays.children]) {
-      const obj = child as Mesh | LineSegments
+      const obj = child as Mesh
       // position attribute 與本體共享，dispose geometry 只釋放 overlay 自己的 index
       obj.geometry.dispose()
       const material = obj.material as { dispose(): void }
@@ -83,12 +81,12 @@ export class SelectionHighlighter {
   private addEdgeOverlay(body: BodyObject, item: BodySelection): void {
     const g = body.edgeGroups.find((eg) => eg.topoId === item.topoId)
     if (!g) return
-    const geometry = new BufferGeometry()
-    geometry.setAttribute('position', body.edges.geometry.getAttribute('position'))
-    geometry.setDrawRange(g.start, g.count)
-    const overlay = new LineSegments(
-      geometry,
-      new LineBasicMaterial({ color: EDGE_COLOR, toneMapped: false, depthTest: false }),
+    const positions = body.edges.geometry.getAttribute('position').array as Float32Array
+    const overlay = createThickLines(
+      positions.subarray(g.start * 3, (g.start + g.count) * 3),
+      EDGE_COLOR,
+      EDGE_WIDTH_PX * 2.2,
+      true,
     )
     overlay.renderOrder = 11
     this.overlays.add(overlay)

@@ -63,6 +63,8 @@ const MULTI_TAP_MAX_DURATION_MS = 300
 const MULTI_TAP_MAX_MOVEMENT_PX = 12
 /** 筆活動後多久內的觸控視為手掌。 */
 export const PALM_WINDOW_MS = 300
+/** 筆「接觸中」但這麼久沒有任何筆事件 → 視為事件遺失，不再擋手指。 */
+const PEN_STALE_MS = 2000
 /** 接觸面積超過此值的觸控視為手掌。 */
 const PALM_CONTACT_PX = 40
 const WHEEL_DOLLY_SPEED = 0.0015
@@ -111,6 +113,7 @@ export class GestureController {
   onPointerDown(e: PointerLike): void {
     const type = e.pointerType ?? 'mouse'
     const now = this.now()
+    this.purgeStalePen(now)
 
     if (type === 'pen') {
       this.notePen(now)
@@ -162,7 +165,8 @@ export class GestureController {
 
     if (!p) {
       // 沒按下的筆/滑鼠移動 = 懸停
-      if (type === 'pen') this.notePen(this.now())
+      // 懸停只用來偵測「有筆」，不延長手掌忽略期：筆懸在上方時另一隻手要能轉視角
+      if (type === 'pen') this.notePen(this.now(), false)
       if ((type === 'pen' || type === 'mouse') && this.pointers.size === 0) {
         this.hovering = true
         this.callbacks.hover?.(e.clientX, e.clientY, type)
@@ -333,9 +337,26 @@ export class GestureController {
   }
 
   private isPalm(e: PointerLike, now: number): boolean {
-    if (this.penDown > 0) return true
+    // 筆「接觸中」才算；事件遺失（pointerup 沒送達）時，過久沒有筆活動就視為已抬起，避免手指永遠被忽略
+    if (this.penDown > 0 && now - this.lastPenTime < PEN_STALE_MS) return true
     if (now - this.lastPenTime < PALM_WINDOW_MS) return true
     return (e.width ?? 0) > PALM_CONTACT_PX || (e.height ?? 0) > PALM_CONTACT_PX
+  }
+
+  /** 筆的 pointerup/cancel 沒送達（Safari 偶發）：久未活動的「按著的筆」當作已抬起。 */
+  private purgeStalePen(now: number): void {
+    if (this.penDown === 0 || now - this.lastPenTime < PEN_STALE_MS) return
+    for (const [id, p] of this.pointers) {
+      if (p.type !== 'pen') continue
+      if (this.primary?.id === id) {
+        if (this.primary.role === 'draw' || this.primary.role === 'manipulate') this.callbacks.primaryCancel()
+        this.primary = null
+      }
+      this.pointers.delete(id)
+    }
+    this.penDown = 0
+    this.session = null
+    this.multiTouchSession = false
   }
 
   /** 筆落下時已在螢幕上的觸控 = 先擱上去的手掌：停止它們造成的導航並忽略。 */
@@ -360,8 +381,8 @@ export class GestureController {
     }
   }
 
-  private notePen(now: number): void {
-    this.lastPenTime = now
+  private notePen(now: number, contact = true): void {
+    if (contact) this.lastPenTime = now
     if (!this.penSeen) {
       this.penSeen = true
       this.callbacks.penDetected?.()

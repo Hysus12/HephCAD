@@ -45,6 +45,7 @@ import {
 } from '../state/appStore.ts'
 import {
   applyBodyMaterial,
+  lineResolution,
   buildBodyObject,
   disposeBodyObject,
   sharedClippingPlanes,
@@ -60,6 +61,7 @@ import { PlaneLayer } from './PlaneLayer.ts'
 import { GestureController, type PrimaryRole } from './gestures.ts'
 import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
 import { angleAboutAxis, screenAngleDelta } from './rotateMath.ts'
+import { edgeBisector, edgePoints, faceBoundaryEdges, tangentChain } from './edgeSelection.ts'
 import { edgeMidpoint, edgeSnapPoints, faceInfo, faceSubMesh } from './meshGeometry.ts'
 import { edgePickThreshold, findTopoGroup } from './picking.ts'
 import { SelectionHighlighter } from './SelectionHighlighter.ts'
@@ -589,7 +591,7 @@ export class Viewport {
     const store = useAppStore.getState()
     const canDraw =
       store.activeTool !== 'select' &&
-      (type === 'pen' || type === 'mouse' || (type === 'touch' && !store.pencilDetected))
+      (type === 'pen' || type === 'mouse' || (type === 'touch' && store.fingerDraw))
     if (canDraw) {
       const target = this.drawTargetAt(local)
       if (target === 'nonplanar') {
@@ -1488,9 +1490,28 @@ export class Viewport {
       const obj = this.bodies.get(first.bodyId)
       const group = obj?.edgeGroups.find((g) => g.topoId === first.topoId)
       if (!mesh || !obj || !group || edges.some((e) => e.bodyId !== first.bodyId)) return []
-      const mid = new Vector3(...edgeMidpoint(mesh, group))
+      // 箭頭放在這條邊「看得到的位置」：封閉曲線（圓）取離相機最近的頂點，其餘取中點；
+      // 方向＝相鄰兩面法線的和（凸邊朝外、凹邊朝空腔），相切邊退回「從中心向外」
+      const pts = edgePoints(mesh, group)
+      const closed = pts.length > 2 && pts[0].every((v, i) => Math.abs(v - pts[pts.length - 1][i]) < 1e-3)
+      let anchor: [number, number, number] = edgeMidpoint(mesh, group)
+      if (closed || pts.length > 2) {
+        const cam = this.camera.position
+        let best = Infinity
+        const candidates = closed ? pts : [pts[Math.floor(pts.length / 2)]]
+        for (const p of candidates) {
+          const dist = (p[0] - cam.x) ** 2 + (p[1] - cam.y) ** 2 + (p[2] - cam.z) ** 2
+          if (dist < best) {
+            best = dist
+            anchor = p
+          }
+        }
+      }
+      const mid = new Vector3(...anchor)
+      const segAt = Math.max(0, Math.min(pts.length - 2, pts.findIndex((q) => q === anchor)))
+      const bisector = pts.length >= 2 ? edgeBisector(mesh, pts[segAt], pts[segAt + 1]) : null
       const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
-      const dir = mid.clone().sub(center).normalize()
+      const dir = bisector ? new Vector3(...bisector) : mid.clone().sub(center).normalize()
       return [
         {
           id: 'blend',
@@ -1588,7 +1609,25 @@ export class Viewport {
     }
     const item = this.pickAt(local)
     if (!item) {
-      store.clearSelection()
+      // 多選模式下點空白處不清除，避免手滑把選好的東西丟掉
+      if (!store.multiSelect) store.clearSelection()
+      return
+    }
+    if (store.multiSelect && tapCount < 2) {
+      if (isBodySelection(item) && item.kind === 'face') {
+        // 多選時點到面＝整個本體（要做布林運算選的是本體，不是面）
+        const whole: SelectionItem = { bodyId: item.bodyId, kind: 'body', topoId: 0 }
+        const onlyBodies = store.selection.every((s) => isBodySelection(s) && s.kind === 'body')
+        if (onlyBodies) store.toggleSelection(whole)
+        else store.replaceSelection([whole])
+      } else {
+        store.toggleSelection(item)
+      }
+      return
+    }
+    if (tapCount >= 2 && isBodySelection(item) && item.kind === 'edge') {
+      // 雙擊邊：選相切連續的整串邊（圓、圓角環、圓弧接直線）
+      this.selectTangentChain(item.bodyId, [item.topoId])
       return
     }
     if (tapCount >= 2) {
@@ -1612,6 +1651,28 @@ export class Viewport {
       return
     }
     store.toggleSelection(item)
+  }
+
+  /** 把目前選到的邊擴張成相切連續的整串（雙擊邊、情境列「相連邊」）。 */
+  selectTangentChain(bodyId: number, seedIds?: number[]): void {
+    const mesh = this.meshes.get(bodyId)
+    if (!mesh) return
+    const store = useAppStore.getState()
+    const seeds =
+      seedIds ??
+      store.selection.filter(isBodySelection).filter((i) => i.bodyId === bodyId && i.kind === 'edge').map((i) => i.topoId)
+    const ids = tangentChain(mesh, seeds)
+    store.replaceSelection(ids.map((topoId) => ({ bodyId, kind: 'edge' as const, topoId })))
+  }
+
+  /** 選取一個面的所有邊界邊（之後拖箭頭一次圓角/倒角整圈）。 */
+  selectFaceEdges(bodyId: number, faceId: number): number {
+    const mesh = this.meshes.get(bodyId)
+    const face = mesh?.faceGroups.find((g) => g.topoId === faceId)
+    if (!mesh || !face) return 0
+    const ids = faceBoundaryEdges(mesh, face)
+    useAppStore.getState().replaceSelection(ids.map((topoId) => ({ bodyId, kind: 'edge' as const, topoId })))
+    return ids.length
   }
 
   /** 選取優先序：草圖線 > 草圖區域 > 模型邊 > 模型面（邊/線有螢幕容差，好點中）。 */
@@ -1880,6 +1941,7 @@ export class Viewport {
     this.renderer.setSize(this.width, this.height, false)
     this.renderer.domElement.style.width = '100%'
     this.renderer.domElement.style.height = '100%'
+    lineResolution.set(this.width, this.height)
     this.camera.aspect = this.width / this.height
     this.camera.updateProjectionMatrix()
     this.invalidate()
