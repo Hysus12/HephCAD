@@ -7,7 +7,7 @@
 // 量測（長度/面積/體積）跟著 body 類選取一起顯示。
 
 import { useEffect, useState } from 'react'
-import { applyBoolean, copySelectedBody } from '../app/bodyActions.ts'
+import { applyBoolean, copySelectedBody, createFolder, moveToFolder } from '../app/bodyActions.ts'
 import { services } from '../app/services.ts'
 import { deleteSelection } from '../app/viewportHost.ts'
 import type { MeasureResult } from '../kernel/protocol.ts'
@@ -37,6 +37,7 @@ export function ContextBar() {
   const toggleCopyMode = useAppStore((s) => s.toggleCopyMode)
   const keepOriginals = useAppStore((s) => s.keepOriginals)
   const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
+  const folders = useAppStore((s) => s.folders)
   const patternType = useAppStore((s) => s.patternType)
   const patternCount = useAppStore((s) => s.patternCount)
   const patternDefinition = useAppStore((s) => s.patternDefinition)
@@ -184,6 +185,37 @@ export function ContextBar() {
         <button className="context-button" onClick={() => void copySelectedBody()}>
           複製
         </button>
+      )}
+      {only('body') && (
+        <>
+          <button
+            className="context-button"
+            title="把選取的本體收進新資料夾"
+            onClick={() => void createFolder(bodyItems.map((i) => i.bodyId))}
+          >
+            群組
+          </button>
+          {folders.length > 0 && (
+            <select
+              className="context-select"
+              aria-label="移到資料夾"
+              value=""
+              onChange={(e) => {
+                const value = e.target.value
+                if (value === '') return
+                void moveToFolder(bodyItems.map((i) => i.bodyId), value === 'none' ? null : Number(value))
+              }}
+            >
+              <option value="">移到…</option>
+              {folders.map((f) => (
+                <option key={f.folderId} value={f.folderId}>
+                  {f.name}
+                </option>
+              ))}
+              <option value="none">（移出資料夾）</option>
+            </select>
+          )}
+        </>
       )}
       {canBoolean && (
         <>

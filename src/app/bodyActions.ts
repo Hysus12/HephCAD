@@ -39,6 +39,41 @@ export async function applyBoolean(mode: Exclude<BoolMode, 'new'>): Promise<void
   }
 }
 
+/** 把本體收進新資料夾（經 journal，可 undo）。 */
+export async function createFolder(bodyIds: number[]): Promise<void> {
+  await documentController.apply({
+    kind: 'folder',
+    action: 'create',
+    folderId: documentController.nextFolderId(),
+    name: '資料夾',
+    bodyIds,
+  })
+}
+
+export async function renameFolder(folderId: number, name: string): Promise<void> {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await documentController.apply({ kind: 'folder', action: 'rename', folderId, name: trimmed })
+}
+
+/** folderId 為 null＝移出資料夾。 */
+export async function moveToFolder(bodyIds: number[], folderId: number | null): Promise<void> {
+  await documentController.apply({ kind: 'folder', action: 'move', folderId, bodyIds })
+}
+
+/** 解散資料夾：本體留著，只是不再分組。 */
+export async function ungroupFolder(folderId: number): Promise<void> {
+  await documentController.apply({ kind: 'folder', action: 'delete', folderId })
+}
+
+/** 資料夾的眼睛：全顯示或全隱藏。 */
+export function toggleFolderVisibility(bodyIds: number[]): void {
+  const store = useAppStore.getState()
+  const members = store.bodies.filter((b) => bodyIds.includes(b.bodyId))
+  const show = members.some((b) => !b.visible)
+  for (const b of members) store.setBodyVisible(b.bodyId, show)
+}
+
 /** 複製目前選取的 body（帶偏移，經 journal）。 */
 export async function copySelectedBody(): Promise<void> {
   const store = useAppStore.getState()

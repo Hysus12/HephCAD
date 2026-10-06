@@ -692,3 +692,32 @@ body {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+.items-folder .items-name-folder {
+  font-weight: 600;
+}
+
+.items-row-nested {
+  padding-left: 22px;
+}
+
+.items-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--accent, #4c8dff);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.context-select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 6px 8px;
+  opacity: 0.9;
+}
