@@ -6,6 +6,8 @@
 
 HephCAD is an attempt to build the tablet CAD experience people love — direct modeling with your fingers and an Apple Pencil — as an open-source web app. Real B-rep solids powered by OpenCascade compiled to WebAssembly, running entirely in your browser. No install, no account, no cloud.
 
+**▶ Try it: [hysus12.github.io/HephCAD](https://hysus12.github.io/HephCAD/)** — best in Safari on an iPad. Tap Share → *Add to Home Screen* and it works offline after the first load.
+
 The signature interaction already works today:
 
 1. Tap the sketch tool and draw a rectangle on the ground grid.
@@ -16,7 +18,7 @@ The signature interaction already works today:
 
 ![A plate with a circular hole cut straight through it, modeled in HephCAD's dark touch-first viewport](docs/assets/cut-plate.webp)
 
-Five gestures, zero dialogs, and you're holding a real boundary-representation solid that will export to STEP one milestone from now. The hole in the plate at the top of this page was made exactly this way.
+Five gestures, zero dialogs, and you're holding a real boundary-representation solid that exports straight to STEP. The plate above went from the blue region at the top of this page to a clean through-hole exactly this way.
 
 ## Why this exists
 
@@ -27,7 +29,7 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Web/PWA delivery.** Open a URL on your iPad and start modeling. Native shell only if it ever earns its keep.
 - **Small, verifiable milestones.** Every feature lands with acceptance criteria and tests. Architecture decisions get an ADR before big dependencies get added.
 
-## What works today (M0–M4)
+## What works today (M0–M7)
 
 - **Viewport**: Z-up turntable camera tuned for touch (one-finger orbit, two-finger pan, pinch zoom, inertia-damped view snapping), ViewCube, adaptive dark CAD grid.
 - **Kernel channel**: OCCT WASM in a Web Worker with a typed message protocol; tessellation moves via zero-copy transferables; every face/edge carries a topology index for picking.
@@ -35,16 +37,25 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Sketching**: draw on the ground plane or any planar face. Line, rectangle, circle, and a two-stroke arc designed for touch (pull the chord, then pull the bulge). Snapping to endpoints, midpoints, centers, horizontal/vertical alignment, and the grid.
 - **Closed regions**: detected live via OCCT planar-graph analysis and filled translucent blue — including regions formed by overlapping curves.
 - **Drag extrusion with automatic booleans**: pull a region to fuse, push into the host body to cut. The drag preview is a pure-JS ghost prism, so it never waits on the kernel; the real boolean commits on release.
-- 59 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, and extrusion.
+- **Documents & history**: every geometry change goes through a linear operation journal — unlimited undo/redo (⌘Z / ⇧⌘Z or the history panel), with each op self-contained enough to replay the whole model deterministically.
+- **Autosave**: the journal persists to OPFS (localStorage fallback) and your model is rebuilt exactly where you left it on next launch.
+- **STEP import/export**: bring real CAD files in, send real CAD files out.
+- **Modify tools**: select a body and a context bar appears — move it (ground-plane drag + a Z handle) or copy it. Select edges and drag to fillet or chamfer with a live kernel preview; select a face and drag to shell the body open. Kernel failures (radius too big, wall too thick) degrade gracefully and never corrupt the journal.
+
+  ![A shelled hollow box next to a copy with filleted edges, both made with drag gestures](docs/assets/modify-tools.png)
+- **Measurement built into selection**: pick an edge and see its length, a face its area, a body its volume — no separate measure tool.
+- **Section view**: one tap slices the model at its center so you can see inside (no cap faces yet).
+- **Installable PWA**: the service worker precaches the whole app including the 50 MB kernel — second launch on iPad is instant and fully offline.
+- **Crash-proof kernel**: if the WASM kernel aborts (say, out of memory on an iPad), in-flight requests fail fast, the worker restarts, and your model is replayed from the in-memory journal in a few seconds. Ops that no longer succeed on replay are skipped and flagged in the history panel instead of losing the whole document.
+- 80 unit tests across camera math, gestures, picking, sketch geometry, snapping, tools, extrusion, the document journal, and kernel crash recovery.
 
 ## Future work
 
 Near-term milestones (roughly in order):
 
-- **M5 — Documents & history**: linear operation journal with unlimited undo/redo, history panel, OPFS autosave, STEP import/export.
-- **M6 — Modify tools**: move/rotate/copy with a touch gizmo, drag-to-fillet/chamfer on edges, shell, offset face — with graceful, undoable failure when OCCT says no.
-- **M7 — Polish**: measurement, section views, appearance/materials, installable PWA with offline support, adaptive tessellation for large models, i18n (English + 繁體中文), sketch-axis screen alignment.
-- **M8 — Open-source hardening**: contributor docs, live demo site, and a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped; we can cut that dramatically).
+- **M6.5 — Modify tools, part 2**: rotation, offset face, multi-body move, keeping selection alive across modifications.
+- **M7.5 — Polish, part 2**: draggable section plane with cap faces, appearance/materials, adaptive tessellation for large models, i18n (English + 繁體中文), numeric input during drags.
+- **M8 — Open-source hardening**: ~~contributor docs~~ and ~~live demo site~~ are done; next is a custom-trimmed OCCT WASM build (the current full build is 14 MB gzipped). Off-the-shelf trimmed builds turned out to lack bindings we depend on — [ADR 0005](docs/adr/0005-trimmed-occt-wasm.md) has the evaluation, the exact symbol list, and the acceptance checks. A great self-contained project if you know Emscripten.
 
 Beyond the milestones, the fun stuff:
 
@@ -68,13 +79,13 @@ npm install
 npm run dev        # then open http://localhost:5173
 ```
 
-For iPad testing, the dev server binds to your LAN — open `http://<your-mac-ip>:5173` from the iPad. First load fetches the 14 MB WASM kernel; after that it's instant.
+For iPad testing, the dev server binds to your LAN — open `http://<your-mac-ip>:5173` from the iPad. First load fetches the 50 MB WASM kernel (14 MB compressed on the demo site); after that it's cached.
 
 Checks: `npm run test` · `npm run lint` · `npm run typecheck` · `npm run build`
 
 ## Contributing
 
-This project is small enough that one person can still hold the whole architecture in their head — which makes it a great time to jump in. Areas where help moves the needle most:
+This project is small enough that one person can still hold the whole architecture in their head — which makes it a great time to jump in. Start with **[docs/architecture.md](docs/architecture.md)** (how a drag-extrude flows through every layer, plus a recipe for adding a new operation) and **[CONTRIBUTING.md](CONTRIBUTING.md)**. Areas where help moves the needle most:
 
 - **Touch/Pencil UX**: you have an iPad and opinions about how CAD should feel? Test the sketch→extrude flow and file issues about anything that feels off.
 - **OCCT from WASM**: booleans, fillets, STEP I/O, and the dark art of a trimmed Emscripten build.

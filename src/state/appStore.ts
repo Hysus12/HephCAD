@@ -31,6 +31,10 @@ export interface AppState {
   snapEnabled: boolean
   toggleSnap: () => void
 
+  /** 剖面視圖（v1：固定 Y=0 前向剖切、無蓋）。 */
+  sectionActive: boolean
+  toggleSection: () => void
+
   kernelStatus: KernelStatus
   kernelError: string | null
   setKernelStatus: (status: KernelStatus, detail?: string) => void
@@ -47,6 +51,10 @@ export interface AppState {
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
 
+  /** 情境工具模式（依選取出現：移動/圓角/倒角/抽殼）。選取變更即重置。 */
+  toolMode: 'move' | 'fillet' | 'chamfer' | 'shell' | null
+  setToolMode: (mode: AppState['toolMode']) => void
+
   /** 草圖模式。 */
   sketchActive: boolean
   sketchTool: ToolKind
@@ -58,12 +66,26 @@ export interface AppState {
   /** 完成草圖後場景中可拖曳擠出的區域數。 */
   extrudableRegionCount: number
   setExtrudableRegionCount: (count: number) => void
+
+  /** 歷程面板：journal 標籤與游標（cursor 之後的是可 redo 的灰色項）。 */
+  journalLabels: string[]
+  journalCursor: number
+  /** 重放時失敗、被略過的 journal 項目（索引 → 錯誤訊息）。 */
+  journalFailures: Record<number, string>
+  setJournal: (
+    labels: string[],
+    cursor: number,
+    failures: Record<number, string>,
+  ) => void
 }
 
 export const useAppStore = create<AppState>()((set) => ({
   gridSpacingMm: 5,
   snapEnabled: true,
   toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
+
+  sectionActive: false,
+  toggleSection: () => set((s) => ({ sectionActive: !s.sectionActive })),
 
   kernelStatus: 'loading',
   kernelError: null,
@@ -91,10 +113,14 @@ export const useAppStore = create<AppState>()((set) => ({
         selection: exists
           ? s.selection.filter((i) => selectionKey(i) !== key)
           : [...s.selection, item],
+        toolMode: null,
       }
     }),
-  replaceSelection: (items) => set({ selection: items }),
-  clearSelection: () => set({ selection: [] }),
+  replaceSelection: (items) => set({ selection: items, toolMode: null }),
+  clearSelection: () => set({ selection: [], toolMode: null }),
+
+  toolMode: null,
+  setToolMode: (mode) => set({ toolMode: mode }),
 
   sketchActive: false,
   sketchTool: 'line',
@@ -106,4 +132,10 @@ export const useAppStore = create<AppState>()((set) => ({
 
   extrudableRegionCount: 0,
   setExtrudableRegionCount: (count) => set({ extrudableRegionCount: count }),
+
+  journalLabels: [],
+  journalCursor: 0,
+  journalFailures: {},
+  setJournal: (labels, cursor, failures) =>
+    set({ journalLabels: labels, journalCursor: cursor, journalFailures: failures }),
 }))

@@ -5,6 +5,8 @@ export function StatusChips() {
   const gridSpacingMm = useAppStore((s) => s.gridSpacingMm)
   const snapEnabled = useAppStore((s) => s.snapEnabled)
   const toggleSnap = useAppStore((s) => s.toggleSnap)
+  const sectionActive = useAppStore((s) => s.sectionActive)
+  const toggleSection = useAppStore((s) => s.toggleSection)
 
   return (
     <div className="status-chips">
@@ -31,6 +33,25 @@ export function StatusChips() {
         <span className="chip-value">{gridSpacingMm}</span>
         <span className="chip-unit">公釐</span>
       </div>
+      <button
+        className={`chip-button ${sectionActive ? 'chip-active' : ''}`}
+        onClick={toggleSection}
+        title={sectionActive ? '剖面視圖：開' : '剖面視圖：關'}
+        aria-label="剖面視圖"
+        aria-pressed={sectionActive}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z" />
+          <path d="M4 7.5 L20 16.5" strokeDasharray="2.5 2.5" />
+        </svg>
+      </button>
     </div>
   )
 }

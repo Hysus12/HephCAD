@@ -21,3 +21,14 @@ export function dragHeight(start: Px, current: Px, axisScreenPxPerUnit: Px): num
   const dy = current.y - start.y
   return (dx * ax + dy * ay) / lenSq
 }
+
+/** 點到線段的距離（px），Z 軸把手的命中測試用。 */
+export function distanceToSegment(p: Px, a: Px, b: Px): number {
+  const abx = b.x - a.x
+  const aby = b.y - a.y
+  const lenSq = abx * abx + aby * aby
+  if (lenSq < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y)
+  let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t))
+}
