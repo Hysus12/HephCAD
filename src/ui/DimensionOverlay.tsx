@@ -37,7 +37,7 @@ export function DimensionOverlay() {
       {keypad === 'primary' && dimension.editable && (
         <Keypad
           initial={dimension.value}
-          unit="mm"
+          unit={dimension.unit ?? 'mm'}
           x={dimension.x}
           y={dimension.y}
           allowNegative

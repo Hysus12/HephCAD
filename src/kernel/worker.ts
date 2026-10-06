@@ -13,7 +13,7 @@ import type {
   TopTools_IndexedDataMapOfShapeListOfShape,
   STEPControl_StepModelType,
 } from 'opencascade.js/dist/opencascade.full.js'
-import type { BoolMode, JournalOp, Translation } from '../doc/journal.ts'
+import type { BoolMode, JournalOp, Rotation, Translation } from '../doc/journal.ts'
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import {
   isFatalKernelError,
@@ -113,6 +113,46 @@ function prismFromCurves(
   return prism
 }
 
+/**
+ * 剛體變換：先繞軸旋轉、再平移，回傳新 shape（**不刪除輸入**）。
+ * 恆等變換也會產生新 shape，所以呼叫端可一律把輸入視為「用完即棄」。
+ */
+function rigidTransform(
+  oc: OpenCascadeInstance,
+  shape: TopoDS_Shape,
+  translation: Translation,
+  rotation?: Rotation,
+): TopoDS_Shape {
+  let current = shape
+  let owned = false
+  const apply = (trsf: { delete(): void }) => {
+    const transform = new oc.BRepBuilderAPI_Transform_2(current, trsf as never, false)
+    const next = transform.Shape()
+    transform.delete()
+    trsf.delete()
+    if (owned) current.delete()
+    current = next
+    owned = true
+  }
+  if (rotation && Math.abs(rotation.angleDeg) > 1e-9) {
+    const point = new oc.gp_Pnt_3(...rotation.center)
+    const dir = new oc.gp_Dir_4(...rotation.axis)
+    const axis = new oc.gp_Ax1_2(point, dir)
+    const trsf = new oc.gp_Trsf_1()
+    trsf.SetRotation_1(axis, (rotation.angleDeg * Math.PI) / 180)
+    axis.delete()
+    dir.delete()
+    point.delete()
+    apply(trsf)
+  }
+  const vec = new oc.gp_Vec_4(...translation)
+  const move = new oc.gp_Trsf_1()
+  move.SetTranslation_1(vec)
+  vec.delete()
+  apply(move)
+  return current
+}
+
 type ChamferAdd3 = {
   Add_3(d1: number, d2: number, edge: TopoDS_Edge, face: TopoDS_Face): void
 }
@@ -155,17 +195,8 @@ function buildModifiedShape(
   old: TopoDS_Shape,
 ): TopoDS_Shape {
   switch (jop.kind) {
-    case 'transform': {
-      const vec = new oc.gp_Vec_4(...jop.translation)
-      const trsf = new oc.gp_Trsf_1()
-      trsf.SetTranslation_1(vec)
-      const transform = new oc.BRepBuilderAPI_Transform_2(old, trsf, false)
-      const moved = transform.Shape()
-      transform.delete()
-      trsf.delete()
-      vec.delete()
-      return moved
-    }
+    case 'transform':
+      return rigidTransform(oc, old, jop.translation, jop.rotation)
     case 'fillet': {
       if (jop.radius < 0.05) throw new Error('半徑過小')
       const maker = jop.chamfer
@@ -583,7 +614,8 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
       const copier = new oc.BRepBuilderAPI_Copy_2(source, true, false)
       const copy = copier.Shape()
       copier.delete()
-      const moved = translated(oc, copy, jop.translation)
+      const moved = rigidTransform(oc, copy, jop.translation, jop.rotation)
+      copy.delete()
       const bodyId = claimBodyId(jop.bodyId)
       setBody(bodyId, moved)
       return result({ ...jop, bodyId }, [bodyId])

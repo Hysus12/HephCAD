@@ -1,6 +1,11 @@
 import {
   Box3,
   BufferGeometry,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  Quaternion,
+  type Object3D,
   Color,
   DirectionalLight,
   GridHelper,
@@ -9,13 +14,14 @@ import {
   LineBasicMaterial,
   PerspectiveCamera,
   Plane,
+  Group,
   Raycaster,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three'
-import type { BoolMode, JournalOp } from '../doc/journal.ts'
+import type { BoolMode, JournalOp, Rotation } from '../doc/journal.ts'
 import { findSketchOnPlane, type SketchEntity } from '../doc/sketches.ts'
 import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
@@ -47,6 +53,7 @@ import { ExtrudePreview } from './ExtrudePreview.ts'
 import { dragHeight, type Px } from './extrudeMath.ts'
 import { GestureController, type PrimaryRole } from './gestures.ts'
 import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
+import { angleAboutAxis, screenAngleDelta } from './rotateMath.ts'
 import { edgeMidpoint, edgeSnapPoints, faceInfo, faceSubMesh } from './meshGeometry.ts'
 import { edgePickThreshold, findTopoGroup } from './picking.ts'
 import { SelectionHighlighter } from './SelectionHighlighter.ts'
@@ -108,6 +115,14 @@ interface Manipulation {
   boolRef?: { mode?: BoolMode }
   /** 自動模式在此高度下會是哪一種（徽章顯示目前生效的模式）。 */
   autoBool?: (value: number) => BoolMode
+  /** 取代預設的「沿軸投影」換算（旋轉：指標繞環的角度）。 */
+  valueFn?: (local: Px) => number
+  /** [吸附步長, 自由步長]；預設 [1, 0.1]（mm）。 */
+  steps?: [number, number]
+  /** 標籤與鍵盤的單位，預設 mm。 */
+  unit?: string
+  /** 移動/旋轉預覽：讓本體（拷貝時是幽靈）跟著動。 */
+  motion?: { bodyId: number; center: Vector3; axis: Vector3 | null; ghost: Group | null }
   /** 圓角/倒角/抽殼的 kernel 預覽節流。 */
   param: { inFlight: boolean; pending: number | null; ghost: BodyObject | null } | null
   minValue: number
@@ -149,6 +164,7 @@ export class Viewport {
     value: number
     anchor: Vector3
     secondary: { text: string; value: number; unit: string; apply: ((v: number) => Promise<void>) | null } | null
+    unit: string
   } | null = null
   private dimensionApply: ((value: number) => Promise<void>) | null = null
   private lastDimensionPx: Px | null = null
@@ -703,18 +719,67 @@ export class Viewport {
           build: (d) =>
             Math.abs(d) < 0.5
               ? null
-              : {
-                  kind: 'transform',
-                  bodyId: action.bodyId,
-                  translation: [dir.x * d, dir.y * d, dir.z * d],
-                },
+              : this.motionOp(action.bodyId, [dir.x * d, dir.y * d, dir.z * d], undefined),
           label: formatSigned,
           param: null,
           blend: false,
           minValue: -Infinity,
+          motion: { bodyId: action.bodyId, center: spec.origin.clone(), axis: null, ghost: null },
         }
         break
       }
+      case 'rotateAxis': {
+        const center = spec.origin.clone()
+        const axis = spec.dir.clone()
+        const startPoint = this.planePoint(local, center, axis)
+        const centerPx = this.worldToLocalPx(center)
+        // 環幾乎側對相機時射線打不到環平面：改用螢幕角度，方向依軸朝向相機與否決定
+        const toCamera = this.camera.position.clone().sub(center).normalize()
+        const screenSign = axis.dot(toCamera) > 0 ? 1 : -1
+        let previous = 0
+        let accumulated = 0
+        manip = {
+          preview: null,
+          build: (deg) =>
+            Math.abs(deg) < 0.1
+              ? null
+              : this.motionOp(action.bodyId, [0, 0, 0], {
+                  axis: [axis.x, axis.y, axis.z],
+                  center: [center.x, center.y, center.z],
+                  angleDeg: deg,
+                }),
+          label: (deg) => `旋轉 ${deg.toFixed(1)}°`,
+          // 連續累加（越過 ±180° 不會跳回），所以可以一路轉超過半圈
+          valueFn: (p) => {
+            const current = this.planePoint(p, center, axis)
+            const raw =
+              startPoint && current
+                ? angleAboutAxis(
+                    [center.x, center.y, center.z],
+                    [axis.x, axis.y, axis.z],
+                    [startPoint.x, startPoint.y, startPoint.z],
+                    [current.x, current.y, current.z],
+                  )
+                : screenAngleDelta(centerPx, local, p) * screenSign
+            let delta = raw - previous
+            if (delta > 180) delta -= 360
+            if (delta < -180) delta += 360
+            accumulated += delta
+            previous = raw
+            return accumulated
+          },
+          steps: [5, 1],
+          unit: '°',
+          param: null,
+          blend: false,
+          minValue: -Infinity,
+          motion: { bodyId: action.bodyId, center, axis, ghost: null },
+        }
+        break
+      }
+      case 'patternLinear':
+      case 'patternCircular':
+        return false
       case 'blend': {
         const { bodyId, ids } = action
         manip = {
@@ -771,17 +836,16 @@ export class Viewport {
   private updateManipulation(local: Px): void {
     const m = this.manip
     if (!m) return
-    const raw = dragHeight(m.startPx, local, m.axisPx)
-    // 開吸附時以 1mm 為級距，數字乾淨（Shapr3D 拖曳時的手感）
-    const step = useAppStore.getState().snapEnabled ? 1 : 0.1
+    const raw = m.valueFn ? m.valueFn(local) : dragHeight(m.startPx, local, m.axisPx)
+    // 開吸附時以固定級距（預設 1mm、旋轉 5°），數字乾淨（Shapr3D 拖曳時的手感）
+    const [snapStep, freeStep] = m.steps ?? [1, 0.1]
+    const step = useAppStore.getState().snapEnabled ? snapStep : freeStep
     m.value = Math.max(m.minValue, Math.round(raw / step) * step)
 
     m.preview?.setHeight(m.value)
-    if (m.spec.action.kind === 'moveAxis') {
-      this.bodies.get(m.spec.action.bodyId)?.group.position.copy(m.spec.dir).multiplyScalar(m.value)
-    }
+    this.applyMotionPreview(m)
     if (m.param) this.requestParamPreview(m, m.value)
-    this.handles.setOffset(m.spec.id, usesKernelPreview(m.spec.action) ? 0 : m.value)
+    this.handles.setOffset(m.spec.id, slidesWithDrag(m.spec.action) ? m.value : 0)
     const angle = useAppStore.getState().chamferAngleDeg
     this.setDimension(
       m.label(m.value),
@@ -791,6 +855,7 @@ export class Viewport {
       m.blend && m.value < 0
         ? { text: `∠ ${angle.toFixed(0)}°`, value: angle, unit: '°', apply: null }
         : null,
+      m.unit,
     )
   }
 
@@ -856,6 +921,7 @@ export class Viewport {
             },
           }
         : null,
+      m.unit,
     )
   }
 
@@ -864,8 +930,11 @@ export class Viewport {
     if (!m) return
     this.manip = null
     m.preview?.dispose()
-    if (m.spec.action.kind === 'moveAxis') {
-      this.bodies.get(m.spec.action.bodyId)?.group.position.set(0, 0, 0)
+    if (m.motion) {
+      const body = this.bodies.get(m.motion.bodyId)
+      body?.group.position.set(0, 0, 0)
+      body?.group.quaternion.identity()
+      if (m.motion.ghost) this.disposeGhost(m.motion.ghost)
     }
     if (m.param) {
       if (m.param.ghost) disposeBodyObject(m.param.ghost)
@@ -913,8 +982,87 @@ export class Viewport {
       })
   }
 
+  /** 移動/旋轉的 journal op；拷貝徽章開啟時是 copyBody（原本體不動）。 */
+  private motionOp(
+    bodyId: number,
+    translation: [number, number, number],
+    rotation: Rotation | undefined,
+  ): JournalOp {
+    const store = useAppStore.getState()
+    const extra = rotation ? { rotation } : {}
+    if (store.copyMode) {
+      const name = store.bodies.find((b) => b.bodyId === bodyId)?.name ?? '主體'
+      return { kind: 'copyBody', sourceBodyId: bodyId, bodyId: 0, name: `${name} 副本`, translation, ...extra }
+    }
+    return { kind: 'transform', bodyId, translation, ...extra }
+  }
+
+  /** 射線與「過 center、法線 axis」的平面交點；幾乎平行時回傳 null。 */
+  private planePoint(local: Px, center: Vector3, axis: Vector3): Vector3 | null {
+    this.setRay(local)
+    if (Math.abs(this.raycaster.ray.direction.dot(axis)) < 0.1) return null
+    const plane = new Plane().setFromNormalAndCoplanarPoint(axis, center)
+    const hit = new Vector3()
+    return this.raycaster.ray.intersectPlane(plane, hit) ? hit : null
+  }
+
+  /** 讓本體（拷貝時是半透明幽靈）依目前數值移動/旋轉。 */
+  private applyMotionPreview(m: Manipulation): void {
+    const motion = m.motion
+    if (!motion) return
+    const body = this.bodies.get(motion.bodyId)
+    if (!body) return
+    const copy = useAppStore.getState().copyMode
+    if (copy && !motion.ghost) motion.ghost = this.makeGhost(body)
+    if (!copy && motion.ghost) {
+      this.disposeGhost(motion.ghost)
+      motion.ghost = null
+    }
+    if (motion.ghost) {
+      body.group.position.set(0, 0, 0)
+      body.group.quaternion.identity()
+    }
+    const target = motion.ghost ?? body.group
+    if (motion.axis) {
+      setPivotTransform(target, new Vector3(), {
+        axis: motion.axis,
+        center: motion.center,
+        angleRad: (m.value * Math.PI) / 180,
+      })
+    } else {
+      setPivotTransform(target, m.spec.dir.clone().multiplyScalar(m.value))
+    }
+  }
+
+  /** 本體的半透明副本（拷貝預覽）：共用幾何、各自的材質。 */
+  private makeGhost(body: BodyObject): Group {
+    const ghost = new Group()
+    const surface = new MeshBasicMaterial({
+      color: HANDLE_COLOR,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+    })
+    const edge = new LineBasicMaterial({ color: 0x9cc3ff, toneMapped: false })
+    body.group.traverse((o) => {
+      if (o instanceof LineSegments) ghost.add(new LineSegments(o.geometry, edge))
+      else if (o instanceof Mesh) ghost.add(new Mesh(o.geometry, surface))
+    })
+    this.scene.add(ghost)
+    return ghost
+  }
+
+  private disposeGhost(ghost: Group): void {
+    const materials = new Set<{ dispose(): void }>()
+    ghost.traverse((o) => {
+      if (o instanceof LineSegments || o instanceof Mesh) materials.add(o.material as { dispose(): void })
+    })
+    for (const material of materials) material.dispose() // 幾何與本體共用，不能釋放
+    ghost.removeFromParent()
+  }
+
   private manipAnchor(m: Manipulation): Vector3 {
-    const offset = usesKernelPreview(m.spec.action) ? 0 : m.value
+    const offset = slidesWithDrag(m.spec.action) ? m.value : 0
     const tip = m.spec.origin.clone().addScaledVector(m.spec.dir, offset)
     return tip.addScaledVector(m.spec.dir, 80 * this.worldPerPixelAt(tip))
   }
@@ -935,13 +1083,27 @@ export class Viewport {
       const obj = body && this.bodies.get(body.bodyId)
       if (!body || !obj) return []
       const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
-      return (['x', 'y', 'z'] as const).map((axis) => ({
-        id: `move-${axis}`,
-        origin: center,
-        dir: new Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0),
-        color: AXIS_COLORS[axis],
-        action: { kind: 'moveAxis', bodyId: body.bodyId },
-      }))
+      const axes = ['x', 'y', 'z'] as const
+      const unit = (axis: 'x' | 'y' | 'z') =>
+        new Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0)
+      return [
+        ...axes.map((axis) => ({
+          id: `move-${axis}`,
+          origin: center,
+          dir: unit(axis),
+          color: AXIS_COLORS[axis],
+          action: { kind: 'moveAxis' as const, bodyId: body.bodyId },
+        })),
+        // 旋轉環：繞各軸（Shapr3D 的 Move/Rotate gizmo 同時有平移箭頭與旋轉弧）
+        ...axes.map((axis) => ({
+          id: `rotate-${axis}`,
+          origin: center,
+          dir: unit(axis),
+          ring: true,
+          color: AXIS_COLORS[axis],
+          action: { kind: 'rotateAxis' as const, bodyId: body.bodyId },
+        })),
+      ]
     }
 
     // 選了邊就有雙向箭頭（不需模式）：往外拉＝圓角、往內推＝倒角
@@ -1197,8 +1359,9 @@ export class Viewport {
       unit: string
       apply: ((v: number) => Promise<void>) | null
     } | null = null,
+    unit = 'mm',
   ): void {
-    this.dimension = { text, editable: apply !== null, value, anchor, secondary }
+    this.dimension = { text, editable: apply !== null, value, anchor, secondary, unit }
     this.dimensionApply = apply
     this.lastDimensionPx = null
     this.invalidate()
@@ -1236,6 +1399,7 @@ export class Viewport {
       text: this.dimension.text,
       editable: this.dimension.editable,
       value: this.dimension.value,
+      unit: this.dimension.unit,
       x: px.x,
       y: px.y,
       secondary: secondary
@@ -1366,6 +1530,30 @@ export class Viewport {
 /** 圓角/倒角/抽殼的預覽要問 kernel（其餘用純 JS 幽靈）。 */
 function usesKernelPreview(action: HandleSpec['action']): boolean {
   return action.kind === 'blend' || action.kind === 'shell'
+}
+
+/** 沿拖曳方向跟著滑動的把手（擠出、推拉、移動的箭頭）。 */
+function slidesWithDrag(action: HandleSpec['action']): boolean {
+  return action.kind === 'extrudeRegion' || action.kind === 'pushPull' || action.kind === 'moveAxis'
+}
+
+/**
+ * 先繞「過 center 的 axis」旋轉、再平移——與 kernel 的 rigidTransform 同序，
+ * 預覽才會與提交後的結果一致。
+ */
+function setPivotTransform(
+  obj: Object3D,
+  translation: Vector3,
+  rotation?: { axis: Vector3; center: Vector3; angleRad: number },
+): void {
+  const q = rotation
+    ? new Quaternion().setFromAxisAngle(rotation.axis, rotation.angleRad)
+    : new Quaternion()
+  obj.quaternion.copy(q)
+  obj.position.copy(translation)
+  if (rotation) {
+    obj.position.add(rotation.center.clone().sub(rotation.center.clone().applyQuaternion(q)))
+  }
 }
 
 function formatSigned(value: number): string {

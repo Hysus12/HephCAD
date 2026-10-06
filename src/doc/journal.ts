@@ -7,6 +7,13 @@ import type { ToolKind } from '../sketch/tools.ts'
 
 export type Translation = [number, number, number]
 
+/** 繞「通過 center、方向 axis（單位向量）」的軸旋轉 angleDeg 度（右手定則）。 */
+export interface Rotation {
+  axis: [number, number, number]
+  center: [number, number, number]
+  angleDeg: number
+}
+
 /** 擠出的布林徽章（Shapr3D）：聯集 / 新本體 / 減去 / 交集。未指定＝自動（有宿主時依方向聯集或減去，否則新本體）。 */
 export type BoolMode = 'union' | 'new' | 'subtract' | 'intersect'
 
@@ -96,13 +103,14 @@ export type JournalOp =
       distance: number
     }
   | { kind: 'importStep'; bodyId: number; name: string; data: string }
-  | { kind: 'transform'; bodyId: number; translation: Translation }
+  | { kind: 'transform'; bodyId: number; translation: Translation; rotation?: Rotation }
   | {
       kind: 'copyBody'
       sourceBodyId: number
       bodyId: number
       name: string
       translation: Translation
+      rotation?: Rotation
     }
   | {
       kind: 'fillet'
@@ -149,9 +157,13 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
     case 'importStep':
       return `匯入 "${op.name}"`
     case 'transform':
-      return `移動 ${nameOf(op.bodyId)}`
+      return `${motionLabel(op.translation, op.rotation)} ${nameOf(op.bodyId)}`
     case 'copyBody':
-      return `複製 ${nameOf(op.sourceBodyId)}`
+      return `複製 ${nameOf(op.sourceBodyId)}${
+        op.rotation || op.translation.some((v) => Math.abs(v) > 1e-9)
+          ? `（${motionLabel(op.translation, op.rotation)}）`
+          : ''
+      }`
     case 'fillet':
       if (!op.chamfer) return `圓角 ${op.radius.toFixed(1)}mm`
       return op.angleDeg !== undefined && Math.abs(op.angleDeg - 45) > 1e-6
@@ -175,6 +187,13 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
     case 'boolean':
       return `${BOOL_LABELS[op.mode]} ${nameOf(op.targetId)}`
   }
+}
+
+function motionLabel(translation: Translation, rotation?: Rotation): string {
+  const moved = translation.some((v) => Math.abs(v) > 1e-9)
+  if (rotation && moved) return '移動並旋轉'
+  if (rotation) return `旋轉 ${rotation.angleDeg.toFixed(1)}°`
+  return '移動'
 }
 
 /** 重放 ops 後每個存活 body 的名稱。 */

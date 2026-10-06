@@ -1,5 +1,6 @@
 import {
   ConeGeometry,
+  TorusGeometry,
   CylinderGeometry,
   Group,
   Mesh,
@@ -10,16 +11,31 @@ import {
   type Scene,
 } from 'three'
 import { distanceToSegment, type Px } from './extrudeMath.ts'
+import { distanceToPolyline } from './rotateMath.ts'
 
 /** 箭頭在螢幕上的長度（px）——夠大才好用手指/筆抓。 */
 const HANDLE_LENGTH_PX = 72
 /** 命中容差（px）。 */
 const HIT_TOLERANCE_PX = 26
+/** 旋轉環在螢幕上的半徑（px）——在箭頭外圍，不互相遮擋。 */
+const RING_RADIUS_PX = 112
+const RING_HIT_TOLERANCE_PX = 22
+/**
+ * 等角視角下環投影成橢圓，會與箭頭在螢幕上交疊；兩者都命中時環優先
+ * （箭頭本來就在中心附近，環在外圍，使用者要抓環時通常是真的想轉）。
+ */
+const RING_PRIORITY_BONUS_PX = 12
+const RING_SAMPLES = 72
 
 export type HandleAction =
   | { kind: 'extrudeRegion'; sketchId: number; regionIndex: number }
   | { kind: 'pushPull'; bodyId: number; faceId: number }
   | { kind: 'moveAxis'; bodyId: number }
+  /** 繞 spec.dir 軸（過 spec.origin）旋轉；value＝角度（度）。 */
+  | { kind: 'rotateAxis'; bodyId: number }
+  /** 陣列：線性＝沿 dir 的間距（mm）；圓形＝繞 dir 的總角度（度）。 */
+  | { kind: 'patternLinear'; bodyId: number }
+  | { kind: 'patternCircular'; bodyId: number }
   /** 圓角/倒角合一：往外拖＝圓角，往內拖＝倒角。 */
   | { kind: 'blend'; bodyId: number; ids: number[] }
   | { kind: 'shell'; bodyId: number; ids: number[] }
@@ -31,6 +47,8 @@ export interface HandleSpec {
   dir: Vector3
   /** 雙向箭頭：兩端都有箭頭（圓角/倒角），原點在中央。 */
   bidirectional?: boolean
+  /** 旋轉環：以 origin 為圓心、dir 為法線，取代箭頭。 */
+  ring?: boolean
   color: number
   action: HandleAction
 }
@@ -69,6 +87,17 @@ export class HandleLayer {
         transparent: true,
         opacity: 0.95,
       })
+      if (spec.ring) {
+        const root = new Group()
+        // 單位圓（半徑 1）在 XY 平面，法線 +Z
+        const torus = new Mesh(new TorusGeometry(1, 0.022, 8, 96), material)
+        torus.renderOrder = 40
+        root.add(torus)
+        root.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), spec.dir))
+        this.group.add(root)
+        this.handles.push({ spec, roots: [root], material })
+        continue
+      }
       const directions = spec.bidirectional ? [spec.dir, spec.dir.clone().negate()] : [spec.dir]
       const roots = directions.map((dir) => {
         const root = new Group()
@@ -107,7 +136,9 @@ export class HandleLayer {
       const offset = this.offsets.get(h.spec.id) ?? 0
       for (const root of h.roots) {
         root.position.copy(h.spec.origin).addScaledVector(h.spec.dir, offset)
-        root.scale.setScalar(HANDLE_LENGTH_PX * worldPerPixelAt(root.position))
+        root.scale.setScalar(
+          (h.spec.ring ? RING_RADIUS_PX : HANDLE_LENGTH_PX) * worldPerPixelAt(root.position),
+        )
       }
     }
   }
@@ -116,6 +147,12 @@ export class HandleLayer {
   hitTest(local: Px, project: (p: Vector3) => Px, worldPerPixelAt: (p: Vector3) => number): HandleSpec | null {
     let best: { spec: HandleSpec; d: number } | null = null
     for (const h of this.handles) {
+      if (h.spec.ring) {
+        const raw = distanceToPolyline(local, this.ringPoints(h.spec, project, worldPerPixelAt))
+        const d = raw - RING_PRIORITY_BONUS_PX
+        if (raw <= RING_HIT_TOLERANCE_PX && (!best || d < best.d)) best = { spec: h.spec, d }
+        continue
+      }
       const offset = this.offsets.get(h.spec.id) ?? 0
       const base = h.spec.origin.clone().addScaledVector(h.spec.dir, offset)
       const reach = HANDLE_LENGTH_PX * worldPerPixelAt(base)
@@ -127,6 +164,29 @@ export class HandleLayer {
       }
     }
     return best?.spec ?? null
+  }
+
+  /** 環取樣點投影到螢幕（命中測試用）。 */
+  private ringPoints(
+    spec: HandleSpec,
+    project: (p: Vector3) => Px,
+    worldPerPixelAt: (p: Vector3) => number,
+  ): Px[] {
+    const radius = RING_RADIUS_PX * worldPerPixelAt(spec.origin)
+    const { u, v } = ringBasis(spec.dir)
+    const pts: Px[] = []
+    for (let i = 0; i <= RING_SAMPLES; i++) {
+      const t = (i / RING_SAMPLES) * Math.PI * 2
+      pts.push(
+        project(
+          spec.origin
+            .clone()
+            .addScaledVector(u, Math.cos(t) * radius)
+            .addScaledVector(v, Math.sin(t) * radius),
+        ),
+      )
+    }
+    return pts
   }
 
   clear(): void {
@@ -141,4 +201,12 @@ export class HandleLayer {
     }
     this.handles = []
   }
+}
+
+/** 垂直於 normal 的兩個正交單位向量。 */
+export function ringBasis(normal: Vector3): { u: Vector3; v: Vector3 } {
+  const ref = Math.abs(normal.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0)
+  const u = new Vector3().crossVectors(normal, ref).normalize()
+  const v = new Vector3().crossVectors(normal, u).normalize()
+  return { u, v }
 }

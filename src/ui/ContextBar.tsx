@@ -33,6 +33,8 @@ export function ContextBar() {
   const selection = useAppStore((s) => s.selection)
   const toolMode = useAppStore((s) => s.toolMode)
   const setToolMode = useAppStore((s) => s.setToolMode)
+  const copyMode = useAppStore((s) => s.copyMode)
+  const toggleCopyMode = useAppStore((s) => s.toggleCopyMode)
   const keepOriginals = useAppStore((s) => s.keepOriginals)
   const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
   const [measure, setMeasure] = useState<string[]>([])
@@ -91,7 +93,7 @@ export function ContextBar() {
     canDelete = true
   }
 
-  if (toolMode === 'move') hint = '拖曳彩色箭頭沿 X / Y / Z 移動'
+  if (toolMode === 'move') hint = '箭頭＝沿軸移動、圓環＝繞軸旋轉（5° 一格）；點數字可輸入精確值'
   else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
 
   return (
@@ -105,7 +107,17 @@ export function ContextBar() {
           {label}
         </button>
       ))}
-      {canCopy && (
+      {toolMode === 'move' && (
+        <button
+          className={`context-button ${copyMode ? 'context-button-active' : ''}`}
+          aria-pressed={copyMode}
+          title="開啟後，移動或旋轉的是副本，原本體不動"
+          onClick={toggleCopyMode}
+        >
+          拷貝
+        </button>
+      )}
+      {canCopy && toolMode !== 'move' && (
         <button className="context-button" onClick={() => void copySelectedBody()}>
           複製
         </button>

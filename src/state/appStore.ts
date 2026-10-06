@@ -54,6 +54,8 @@ export interface DimensionLabel {
   y: number
   editable: boolean
   value: number
+  /** 主數值的單位（鍵盤顯示用），預設 mm；旋轉是 °。 */
+  unit?: string
   /** 第二個可點的參數（倒角角度）。 */
   secondary?: { text: string; value: number; unit: string; editable: boolean }
 }
@@ -115,6 +117,9 @@ export interface AppState {
   /** 擠出後的布林徽章（聯集/新本體/減去/交集）；mode 是目前生效的那個。 */
   boolBadge: { mode: BoolMode } | null
   setBoolBadge: (badge: { mode: BoolMode } | null) => void
+  /** 拷貝徽章（Shapr3D）：開啟時移動/旋轉的是副本，原本體不動。 */
+  copyMode: boolean
+  toggleCopyMode: () => void
   /** 獨立布林是否保留原本體（結果成為新本體）。 */
   keepOriginals: boolean
   toggleKeepOriginals: () => void
@@ -227,6 +232,8 @@ export const useAppStore = create<AppState>()((set) => ({
 
   boolBadge: null,
   setBoolBadge: (badge) => set({ boolBadge: badge }),
+  copyMode: false,
+  toggleCopyMode: () => set((s) => ({ copyMode: !s.copyMode })),
   keepOriginals: false,
   toggleKeepOriginals: () => set((s) => ({ keepOriginals: !s.keepOriginals })),
 
