@@ -35,6 +35,7 @@ import {
   type Vec3Tuple,
 } from '../sketch/model.ts'
 import { planeFromNormal } from '../sketch/plane.ts'
+import { edgePolyline, projectPolyline, projectSketchCurves } from '../sketch/project.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 import {
   isBodySelection,
@@ -94,7 +95,7 @@ export interface ViewportHost {
   commit(op: JournalOp): Promise<unknown>
   /** 以新參數取代最後一筆（拖曳後輸入精確值）。 */
   amend(op: JournalOp): Promise<unknown>
-  commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind): Promise<void>
+  commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool?: ToolKind): Promise<void>
   /** 把最後畫的那條線/圓改成指定長度/半徑。 */
   resizeLastSketchCurve(value: number): Promise<void>
   /** 新建構平面要用的 id。 */
@@ -728,6 +729,56 @@ export class Viewport {
       existingCurves: existing?.curves ?? [],
       extraPoints: this.modelSnapPoints(plane),
     }
+  }
+
+  /**
+   * 投影：把選取的模型邊／草圖線正投影到目標平面並存成草圖線。
+   * 目標：選取中的一個平面面 > 目前選為草圖平面的建構平面。
+   * 回傳訊息（失敗原因或成果）給 UI 顯示。
+   */
+  async projectSelection(): Promise<string> {
+    if (!this.host) return ''
+    const { selection } = useAppStore.getState()
+    const face = selection.filter(isBodySelection).find((i) => i.kind === 'face')
+    let target: { plane: SketchPlane; host: number | null } | null = null
+    if (face) {
+      const placed = this.facePlacement(face)
+      if (placed?.planar) {
+        const o = placed.origin
+        target = {
+          plane: planeFromNormal([placed.normal.x, placed.normal.y, placed.normal.z], [o.x, o.y, o.z]),
+          host: face.bodyId,
+        }
+      }
+    }
+    if (!target) {
+      const active = this.activePlaneEntity()
+      if (active) target = { plane: active.plane, host: null }
+    }
+    if (!target) return '先雙擊一個建構平面，或同時選一個平面面當投影目標'
+
+    const curves: SketchCurve[] = []
+    for (const item of selection) {
+      if (isBodySelection(item) && item.kind === 'edge') {
+        const mesh = this.meshes.get(item.bodyId)
+        const group = this.bodies.get(item.bodyId)?.edgeGroups.find((g) => g.topoId === item.topoId)
+        if (mesh && group) {
+          curves.push(...projectPolyline(target.plane, edgePolyline(mesh.edgePositions, group.start, group.count)))
+        }
+      } else if (!isBodySelection(item) && item.kind === 'curve') {
+        const sketch = this.sketchLayers.get(item.sketchId)?.entity
+        const curve = sketch?.curves.find((c) => c.id === item.curveId)
+        if (sketch && curve) curves.push(...projectSketchCurves(sketch.plane, [curve], target.plane))
+      }
+    }
+    if (curves.length === 0) return '選取的內容投影後沒有線（與目標平面垂直）'
+    try {
+      await this.host.commitSketch(target.plane, target.host, curves)
+    } catch (e) {
+      return `投影失敗：${e instanceof Error ? e.message : String(e)}`
+    }
+    useAppStore.getState().clearSelection()
+    return `已投影 ${curves.length} 條線`
   }
 
   private activePlaneEntity(): PlaneEntity | null {

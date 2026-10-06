@@ -14,7 +14,7 @@ export function createViewportHost(): ViewportHost {
     kernel: () => services.kernel,
     commit: (op) => documentController.apply(op),
     amend: (op) => documentController.amendLast(op),
-    async commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind) {
+    async commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool?: ToolKind) {
       const { sketchId, nextCurveId } = documentController.sketchFor(plane, hostBodyId)
       await documentController.apply({
         kind: 'sketch',

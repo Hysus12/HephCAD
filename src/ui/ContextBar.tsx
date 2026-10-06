@@ -249,6 +249,19 @@ export function ContextBar() {
           </button>
         </>
       )}
+      {selection.some((i) => i.kind === 'edge' || i.kind === 'curve') && (
+        <button
+          className="context-button"
+          title="把選取的邊/草圖線投影到目前的建構平面（或同時選的一個面）"
+          onClick={() =>
+            void services.viewport?.projectSelection().then((message) => {
+              if (message) useAppStore.getState().showToast(message)
+            })
+          }
+        >
+          投影
+        </button>
+      )}
       {canLookAt && (
         <button className="context-button" onClick={() => services.viewport?.lookAtSelection()}>
           正視
