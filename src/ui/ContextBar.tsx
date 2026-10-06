@@ -37,6 +37,12 @@ export function ContextBar() {
   const toggleCopyMode = useAppStore((s) => s.toggleCopyMode)
   const keepOriginals = useAppStore((s) => s.keepOriginals)
   const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
+  const patternType = useAppStore((s) => s.patternType)
+  const patternCount = useAppStore((s) => s.patternCount)
+  const patternDefinition = useAppStore((s) => s.patternDefinition)
+  const setPatternType = useAppStore((s) => s.setPatternType)
+  const setPatternCount = useAppStore((s) => s.setPatternCount)
+  const setPatternDefinition = useAppStore((s) => s.setPatternDefinition)
   const [measure, setMeasure] = useState<string[]>([])
 
   const bodyItems = selection.filter(isBodySelection)
@@ -85,6 +91,7 @@ export function ContextBar() {
   } else if (only('body')) {
     if (selection.length === 1) {
       modes.push({ mode: 'move', label: '移動' })
+      modes.push({ mode: 'pattern', label: '陣列' })
       canCopy = true
     } else {
       canBoolean = true
@@ -94,7 +101,12 @@ export function ContextBar() {
   }
 
   if (toolMode === 'move') hint = '箭頭＝沿軸移動、圓環＝繞軸旋轉（5° 一格）；點數字可輸入精確值'
-  else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
+  else if (toolMode === 'pattern') {
+    hint =
+      patternType === 'linear'
+        ? `箭頭＝沿軸陣列（${patternDefinition === 'total' ? '拖到的距離是總長' : '拖到的距離是間距'}）；點數字可輸入精確值`
+        : '圓環＝繞軸陣列（拖滿一圈＝均分整圈）；點數字可輸入總角度'
+  } else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
 
   return (
     <div className="context-bar">
@@ -116,6 +128,57 @@ export function ContextBar() {
         >
           拷貝
         </button>
+      )}
+      {toolMode === 'pattern' && (
+        <>
+          <button
+            className={`context-button ${patternType === 'linear' ? 'context-button-active' : ''}`}
+            onClick={() => setPatternType('linear')}
+          >
+            線性
+          </button>
+          <button
+            className={`context-button ${patternType === 'circular' ? 'context-button-active' : ''}`}
+            onClick={() => setPatternType('circular')}
+          >
+            圓形
+          </button>
+          <span className="context-stepper" aria-label="陣列數量（含原本體）">
+            <button
+              className="context-button"
+              aria-label="減少數量"
+              onClick={() => {
+                setPatternCount(patternCount - 1)
+                void services.viewport?.refreshArmed()
+              }}
+            >
+              −
+            </button>
+            <span className="context-stepper-value">×{patternCount}</span>
+            <button
+              className="context-button"
+              aria-label="增加數量"
+              onClick={() => {
+                setPatternCount(patternCount + 1)
+                void services.viewport?.refreshArmed()
+              }}
+            >
+              ＋
+            </button>
+          </span>
+          {patternType === 'linear' && (
+            <button
+              className="context-button"
+              title="切換「拖到的距離」代表間距或總長"
+              onClick={() => {
+                setPatternDefinition(patternDefinition === 'spacing' ? 'total' : 'spacing')
+                void services.viewport?.refreshArmed()
+              }}
+            >
+              {patternDefinition === 'spacing' ? '間距' : '總長'}
+            </button>
+          )}
+        </>
       )}
       {canCopy && toolMode !== 'move' && (
         <button className="context-button" onClick={() => void copySelectedBody()}>

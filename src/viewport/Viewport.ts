@@ -92,6 +92,8 @@ export interface ViewportHost {
   commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind): Promise<void>
   /** 把最後畫的那條線/圓改成指定長度/半徑。 */
   resizeLastSketchCurve(value: number): Promise<void>
+  /** 新資料夾（陣列自動建立的也算）要用的 id。 */
+  nextFolderId(): number
   /** 把選取的線/圓改成指定長度/半徑（相接的線跟著動）。 */
   resizeSketchCurve(sketchId: number, curveId: number, value: number): Promise<void>
   undo(): void
@@ -121,6 +123,8 @@ interface Manipulation {
   steps?: [number, number]
   /** 標籤與鍵盤的單位，預設 mm。 */
   unit?: string
+  /** 陣列預覽：count-1 個幽靈副本。 */
+  pattern?: { bodyId: number; center: Vector3; axis: Vector3 | null; ghosts: Group[] }
   /** 移動/旋轉預覽：讓本體（拷貝時是幽靈）跟著動。 */
   motion?: { bodyId: number; center: Vector3; axis: Vector3 | null; ghost: Group | null }
   /** 圓角/倒角/抽殼的 kernel 預覽節流。 */
@@ -171,7 +175,7 @@ export class Viewport {
   /** 目前的尺寸標籤是否屬於「選取的草圖線」（換選取時才需要清掉）。 */
   private curveDimensionOwner = false
   /** 剛擠出、徽章可改布林模式的那次操作。 */
-  private armedExtrude: { m: Manipulation; value: number; anchor: Vector3 } | null = null
+  private armed: { m: Manipulation; value: number; anchor: Vector3 } | null = null
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -220,7 +224,8 @@ export class Viewport {
         state.selection !== prev.selection ||
         state.bodies !== prev.bodies ||
         state.sketches !== prev.sketches ||
-        state.toolMode !== prev.toolMode
+        state.toolMode !== prev.toolMode ||
+        state.patternType !== prev.patternType
       ) {
         this.syncVisibility()
         this.syncHighlights()
@@ -429,9 +434,23 @@ export class Viewport {
     if (apply) await apply(value)
   }
 
+  /** 改了陣列數量等「建構參數」後，用新參數重做剛才那一步。 */
+  async refreshArmed(): Promise<void> {
+    const armed = this.armed
+    if (!armed || !this.host) return
+    const op = armed.m.build(armed.value)
+    if (!op) return
+    try {
+      await this.host.amend(op)
+    } catch (e) {
+      useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
+    }
+    this.armDimension(armed.m, armed.value, armed.anchor)
+  }
+
   /** 擠出後點徽章：改成聯集/新本體/減去/交集，取代剛才那一步。 */
   async applyBoolMode(mode: BoolMode): Promise<void> {
-    const armed = this.armedExtrude
+    const armed = this.armed
     if (!armed?.m.boolRef || !this.host) return
     const previous = armed.m.boolRef.mode
     armed.m.boolRef.mode = mode
@@ -777,9 +796,63 @@ export class Viewport {
         }
         break
       }
-      case 'patternLinear':
-      case 'patternCircular':
-        return false
+      case 'patternLinear': {
+        const dir = spec.dir.clone()
+        manip = {
+          preview: null,
+          build: (v) => this.patternOp(action.bodyId, 'linear', v, dir, spec.origin),
+          label: (v) => {
+            const s = useAppStore.getState()
+            return `${s.patternDefinition === 'total' ? '總長' : '間距'} ${formatSigned(v)} ×${s.patternCount}`
+          },
+          param: null,
+          blend: false,
+          minValue: -Infinity,
+          pattern: { bodyId: action.bodyId, center: spec.origin.clone(), axis: null, ghosts: [] },
+        }
+        break
+      }
+      case 'patternCircular': {
+        const center = spec.origin.clone()
+        const axis = spec.dir.clone()
+        const startPoint = this.planePoint(local, center, axis)
+        const centerPx = this.worldToLocalPx(center)
+        const toCamera = this.camera.position.clone().sub(center).normalize()
+        const screenSign = axis.dot(toCamera) > 0 ? 1 : -1
+        let previous = 0
+        let accumulated = 0
+        manip = {
+          preview: null,
+          build: (deg) => this.patternOp(action.bodyId, 'circular', deg, axis, center),
+          label: (deg) =>
+            `${Math.abs(deg) >= 360 ? '整圈' : `總角度 ${deg.toFixed(0)}°`} ×${useAppStore.getState().patternCount}`,
+          valueFn: (p) => {
+            const current = this.planePoint(p, center, axis)
+            const raw =
+              startPoint && current
+                ? angleAboutAxis(
+                    [center.x, center.y, center.z],
+                    [axis.x, axis.y, axis.z],
+                    [startPoint.x, startPoint.y, startPoint.z],
+                    [current.x, current.y, current.z],
+                  )
+                : screenAngleDelta(centerPx, local, p) * screenSign
+            let delta = raw - previous
+            if (delta > 180) delta -= 360
+            if (delta < -180) delta += 360
+            accumulated += delta
+            previous = raw
+            return Math.max(-360, Math.min(360, accumulated))
+          },
+          steps: [15, 1],
+          unit: '°',
+          param: null,
+          blend: false,
+          minValue: -Infinity,
+          pattern: { bodyId: action.bodyId, center, axis, ghosts: [] },
+        }
+        break
+      }
       case 'blend': {
         const { bodyId, ids } = action
         manip = {
@@ -844,6 +917,7 @@ export class Viewport {
 
     m.preview?.setHeight(m.value)
     this.applyMotionPreview(m)
+    this.applyPatternPreview(m)
     if (m.param) this.requestParamPreview(m, m.value)
     this.handles.setOffset(m.spec.id, slidesWithDrag(m.spec.action) ? m.value : 0)
     const angle = useAppStore.getState().chamferAngleDeg
@@ -882,8 +956,8 @@ export class Viewport {
    * 每次修改完會重新掛上，所以能連續微調（圓角 ↔ 倒角、改角度…）。
    */
   private armDimension(m: Manipulation, value: number, anchor: Vector3): void {
+    this.armed = { m, value, anchor }
     if (m.boolRef && m.autoBool) {
-      this.armedExtrude = { m, value, anchor }
       useAppStore.getState().setBoolBadge({ mode: m.boolRef.mode ?? m.autoBool(value) })
     }
     const amendWith = async (next: JournalOp | null, nextValue: number) => {
@@ -930,6 +1004,10 @@ export class Viewport {
     if (!m) return
     this.manip = null
     m.preview?.dispose()
+    if (m.pattern) {
+      for (const ghost of m.pattern.ghosts) this.disposeGhost(ghost)
+      m.pattern.ghosts = []
+    }
     if (m.motion) {
       const body = this.bodies.get(m.motion.bodyId)
       body?.group.position.set(0, 0, 0)
@@ -1004,6 +1082,65 @@ export class Viewport {
     const plane = new Plane().setFromNormalAndCoplanarPoint(axis, center)
     const hit = new Vector3()
     return this.raycaster.ray.intersectPlane(plane, hit) ? hit : null
+  }
+
+  /** 陣列的 journal op；value＝線性的間距/總長（mm）或圓形的總角度（度）。 */
+  private patternOp(
+    bodyId: number,
+    mode: 'linear' | 'circular',
+    value: number,
+    axis: Vector3,
+    origin: Vector3,
+  ): JournalOp | null {
+    const store = useAppStore.getState()
+    if (Math.abs(value) < (mode === 'linear' ? 0.5 : 1)) return null
+    const name = store.bodies.find((b) => b.bodyId === bodyId)?.name ?? '主體'
+    const base = {
+      kind: 'pattern' as const,
+      sourceBodyId: bodyId,
+      count: store.patternCount,
+      resultBodyIds: [] as number[],
+      name,
+      folderId: this.host?.nextFolderId() ?? 1,
+    }
+    if (mode === 'linear') {
+      const spacing = store.patternDefinition === 'total' ? value / (store.patternCount - 1) : value
+      return { ...base, mode, direction: [axis.x, axis.y, axis.z], spacing }
+    }
+    return {
+      ...base,
+      mode,
+      axis: [axis.x, axis.y, axis.z],
+      center: [origin.x, origin.y, origin.z],
+      totalAngleDeg: value,
+    }
+  }
+
+  /** 陣列的半透明幽靈副本（數量或數值改變時重建）。 */
+  private applyPatternPreview(m: Manipulation): void {
+    const pattern = m.pattern
+    if (!pattern) return
+    const body = this.bodies.get(pattern.bodyId)
+    if (!body) return
+    const store = useAppStore.getState()
+    const copies = store.patternCount - 1
+    while (pattern.ghosts.length > copies) this.disposeGhost(pattern.ghosts.pop()!)
+    while (pattern.ghosts.length < copies) pattern.ghosts.push(this.makeGhost(body))
+    pattern.ghosts.forEach((ghost, index) => {
+      const i = index + 1
+      if (pattern.axis) {
+        const full = Math.abs(m.value) >= 360 - 1e-6
+        const step = full ? 360 / store.patternCount : m.value / (store.patternCount - 1)
+        setPivotTransform(ghost, new Vector3(), {
+          axis: pattern.axis,
+          center: pattern.center,
+          angleRad: (step * i * Math.PI) / 180,
+        })
+      } else {
+        const spacing = store.patternDefinition === 'total' ? m.value / (store.patternCount - 1) : m.value
+        setPivotTransform(ghost, m.spec.dir.clone().multiplyScalar(spacing * i))
+      }
+    })
   }
 
   /** 讓本體（拷貝時是半透明幽靈）依目前數值移動/旋轉。 */
@@ -1104,6 +1241,24 @@ export class Viewport {
           action: { kind: 'rotateAxis' as const, bodyId: body.bodyId },
         })),
       ]
+    }
+
+    if (toolMode === 'pattern') {
+      const body = bodyItems.find((i) => i.kind === 'body')
+      const obj = body && this.bodies.get(body.bodyId)
+      if (!body || !obj) return []
+      const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
+      const circular = useAppStore.getState().patternType === 'circular'
+      return (['x', 'y', 'z'] as const).map((axis) => ({
+        id: `pattern-${axis}`,
+        origin: center,
+        dir: new Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0),
+        ring: circular,
+        color: AXIS_COLORS[axis],
+        action: circular
+          ? { kind: 'patternCircular' as const, bodyId: body.bodyId }
+          : { kind: 'patternLinear' as const, bodyId: body.bodyId },
+      }))
     }
 
     // 選了邊就有雙向箭頭（不需模式）：往外拉＝圓角、往內推＝倒角
@@ -1369,8 +1524,8 @@ export class Viewport {
 
   private clearDimension(): void {
     this.curveDimensionOwner = false
-    if (this.armedExtrude) {
-      this.armedExtrude = null
+    if (this.armed) {
+      this.armed = null
       useAppStore.getState().setBoolBadge(null)
     }
     if (!this.dimension && !this.dimensionApply) return
@@ -1534,7 +1689,12 @@ function usesKernelPreview(action: HandleSpec['action']): boolean {
 
 /** 沿拖曳方向跟著滑動的把手（擠出、推拉、移動的箭頭）。 */
 function slidesWithDrag(action: HandleSpec['action']): boolean {
-  return action.kind === 'extrudeRegion' || action.kind === 'pushPull' || action.kind === 'moveAxis'
+  return (
+    action.kind === 'extrudeRegion' ||
+    action.kind === 'pushPull' ||
+    action.kind === 'moveAxis' ||
+    action.kind === 'patternLinear'
+  )
 }
 
 /**

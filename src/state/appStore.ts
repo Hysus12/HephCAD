@@ -9,6 +9,15 @@ export interface BodyEntry {
   visible: boolean
 }
 
+export interface FolderEntry {
+  folderId: number
+  name: string
+  bodyIds: number[]
+  auto: boolean
+  /** 本地視圖狀態：展開/收合（跨推導保留）。 */
+  expanded: boolean
+}
+
 export interface SketchEntry {
   sketchId: number
   name: string
@@ -84,6 +93,11 @@ export interface AppState {
   removeBody: (bodyId: number) => void
   setBodyVisible: (bodyId: number, visible: boolean) => void
 
+  /** 資料夾（由 journal 推導；展開狀態是本地視圖狀態）。 */
+  folders: FolderEntry[]
+  setFolders: (list: Omit<FolderEntry, 'expanded'>[]) => void
+  toggleFolderExpanded: (folderId: number) => void
+
   /** 文件中的草圖（由 journal 推導；顯示/隱藏是本地視圖狀態，跨推導保留）。 */
   sketches: SketchEntry[]
   setSketches: (list: Omit<SketchEntry, 'visible'>[]) => void
@@ -96,7 +110,7 @@ export interface AppState {
   clearSelection: () => void
 
   /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
-  toolMode: 'move' | 'shell' | null
+  toolMode: 'move' | 'shell' | 'pattern' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
   activeTool: ActiveTool
@@ -113,6 +127,14 @@ export interface AppState {
   /** 數字鍵盤正在編輯哪個欄位（null = 關閉）。 */
   keypad: 'primary' | 'secondary' | null
   setKeypad: (target: 'primary' | 'secondary' | null) => void
+
+  /** 陣列設定：線性/圓形、總數（含原本體）、線性以「間距」或「總長」定義。 */
+  patternType: 'linear' | 'circular'
+  patternCount: number
+  patternDefinition: 'spacing' | 'total'
+  setPatternType: (type: 'linear' | 'circular') => void
+  setPatternCount: (count: number) => void
+  setPatternDefinition: (definition: 'spacing' | 'total') => void
 
   /** 擠出後的布林徽章（聯集/新本體/減去/交集）；mode 是目前生效的那個。 */
   boolBadge: { mode: BoolMode } | null
@@ -174,6 +196,17 @@ export const useAppStore = create<AppState>()((set) => ({
       bodies: s.bodies.map((b) => (b.bodyId === bodyId ? { ...b, visible } : b)),
     })),
 
+  folders: [],
+  setFolders: (list) =>
+    set((s) => {
+      const expanded = new Map(s.folders.map((f) => [f.folderId, f.expanded]))
+      return { folders: list.map((f) => ({ ...f, expanded: expanded.get(f.folderId) ?? true })) }
+    }),
+  toggleFolderExpanded: (folderId) =>
+    set((s) => ({
+      folders: s.folders.map((f) => (f.folderId === folderId ? { ...f, expanded: !f.expanded } : f)),
+    })),
+
   sketches: [],
   setSketches: (list) =>
     set((s) => {
@@ -232,6 +265,13 @@ export const useAppStore = create<AppState>()((set) => ({
 
   boolBadge: null,
   setBoolBadge: (badge) => set({ boolBadge: badge }),
+  patternType: 'linear',
+  patternCount: 3,
+  patternDefinition: 'spacing',
+  setPatternType: (type) => set({ patternType: type }),
+  setPatternCount: (count) => set({ patternCount: Math.max(2, Math.min(50, Math.round(count))) }),
+  setPatternDefinition: (definition) => set({ patternDefinition: definition }),
+
   copyMode: false,
   toggleCopyMode: () => set((s) => ({ copyMode: !s.copyMode })),
   keepOriginals: false,

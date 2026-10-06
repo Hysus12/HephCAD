@@ -680,3 +680,15 @@ body {
   background: rgba(74, 141, 240, 0.3);
   color: #cfe0ff;
 }
+
+.context-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.context-stepper-value {
+  min-width: 2.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

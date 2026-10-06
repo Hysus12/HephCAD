@@ -153,6 +153,10 @@ function rigidTransform(
   return current
 }
 
+function scaleVec(v: [number, number, number], k: number): [number, number, number] {
+  return [v[0] * k, v[1] * k, v[2] * k]
+}
+
 type ChamferAdd3 = {
   Add_3(d1: number, d2: number, edge: TopoDS_Edge, face: TopoDS_Face): void
 }
@@ -580,6 +584,47 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
         prism.delete()
       }
     }
+    case 'pattern': {
+      const source = bodies.get(jop.sourceBodyId)
+      if (!source) throw new Error(`body ${jop.sourceBodyId} 不存在`)
+      if (jop.count < 2 || jop.count > 200) throw new Error('陣列數量需介於 2 與 200')
+      const copies = jop.count - 1
+      // 圓形：整圈等分 360/count；否則首尾涵蓋 totalAngle（count-1 等分）
+      const fullCircle = Math.abs(jop.totalAngleDeg ?? 0) >= 360 - 1e-6
+      const stepAngle =
+        jop.mode === 'circular'
+          ? fullCircle
+            ? 360 / jop.count
+            : (jop.totalAngleDeg ?? 0) / (jop.count - 1)
+          : 0
+      const created: TopoDS_Shape[] = []
+      try {
+        for (let i = 1; i <= copies; i++) {
+          const copier = new oc.BRepBuilderAPI_Copy_2(source, true, false)
+          const copy = copier.Shape()
+          copier.delete()
+          const placed =
+            jop.mode === 'linear'
+              ? rigidTransform(oc, copy, scaleVec(jop.direction ?? [1, 0, 0], (jop.spacing ?? 0) * i))
+              : rigidTransform(oc, copy, [0, 0, 0], {
+                  axis: jop.axis ?? [0, 0, 1],
+                  center: jop.center ?? [0, 0, 0],
+                  angleDeg: stepAngle * i,
+                })
+          copy.delete()
+          created.push(placed)
+        }
+      } catch (e) {
+        for (const shape of created) shape.delete()
+        throw e
+      }
+      const ids = created.map((shape, i) => {
+        const id = claimBodyId(jop.resultBodyIds[i] ?? 0)
+        setBody(id, shape)
+        return id
+      })
+      return result({ ...jop, resultBodyIds: ids }, ids)
+    }
     case 'boolean': {
       const target = bodies.get(jop.targetId)
       const tools = jop.toolIds.map((id) => bodies.get(id))
@@ -621,7 +666,8 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
       return result({ ...jop, bodyId }, [bodyId])
     }
     case 'sketch':
-      // 草圖只存在於文件層（主執行緒推導），kernel 不需要狀態
+    case 'folder':
+      // 草圖與資料夾只存在於文件層（主執行緒由 journal 推導），kernel 不需要狀態
       return { op: jop, updated: [], removed: [] }
     case 'pushPull': {
       replaceBodyShape(jop.bodyId, (old) => pushPullShape(oc, old, jop.faceId, jop.distance))

@@ -18,6 +18,7 @@ import {
   type JournalOp,
 } from './journal.ts'
 import { loadDocument, saveDocument } from './persistence.ts'
+import { deriveFolders, nextFolderId } from './folders.ts'
 import {
   deriveSketches,
   findSketchOnPlane,
@@ -138,6 +139,11 @@ export class DocumentController {
     return { sketchId: nextSketchId(this.activeOps()), nextCurveId: 1 }
   }
 
+  /** 新資料夾（或陣列）要用的 id。 */
+  nextFolderId(): number {
+    return nextFolderId(this.activeOps())
+  }
+
   /** 最後一筆（游標前）的 op——數字修正用。 */
   lastOp(): JournalOp | null {
     return this.cursor > 0 ? this.entries[this.cursor - 1].op : null
@@ -189,6 +195,7 @@ export class DocumentController {
       })),
     })
     this.syncSketches()
+    this.syncFolders()
   }
 
   /** 把單一 op 的結果同步到場景與 store。 */
@@ -203,6 +210,14 @@ export class DocumentController {
       this.upsertBody(body)
     }
     if (applied.op.kind === 'sketch' || applied.op.kind === 'extrude') this.syncSketches()
+    this.syncFolders()
+  }
+
+  /** 資料夾由 journal 推導；只計成功套用的 op 與仍存在的本體。 */
+  private syncFolders(): void {
+    const ops = this.activeOps().filter((_, i) => !(i in this.failures))
+    const alive = new Set(aliveBodyNames(ops).keys())
+    useAppStore.getState().setFolders(deriveFolders(ops, alive))
   }
 
   private upsertBody(body: BodyMeshResult): void {

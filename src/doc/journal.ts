@@ -102,6 +102,38 @@ export type JournalOp =
       faceId: number
       distance: number
     }
+  | {
+      /**
+       * 陣列（Shapr3D 的 Transform > Pattern）：count 是總數（含原本體），
+       * 產生 count-1 個副本，連同原本體自動放進一個資料夾。
+       */
+      kind: 'pattern'
+      sourceBodyId: number
+      count: number
+      mode: 'linear' | 'circular'
+      /** 線性：單位方向與「相鄰兩個之間」的間距（mm，可為負）。 */
+      direction?: [number, number, number]
+      spacing?: number
+      /** 圓形：旋轉軸、圓心、總角度（度）；|總角度| ≥ 360 視為整圈（等分 360/count）。 */
+      axis?: [number, number, number]
+      center?: [number, number, number]
+      totalAngleDeg?: number
+      /** 副本的 bodyId（首次執行由 kernel 指派並寫回；重放沿用）。 */
+      resultBodyIds: number[]
+      name: string
+      folderId: number
+    }
+  | {
+      /**
+       * 項目管理的資料夾（純文件層，kernel 不需要）：
+       * create 帶初始成員；move 把本體移入 folderId（null＝移回最上層）；delete 解散資料夾。
+       */
+      kind: 'folder'
+      action: 'create' | 'rename' | 'move' | 'delete'
+      folderId: number | null
+      name?: string
+      bodyIds?: number[]
+    }
   | { kind: 'importStep'; bodyId: number; name: string; data: string }
   | { kind: 'transform'; bodyId: number; translation: Translation; rotation?: Rotation }
   | {
@@ -186,6 +218,18 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       return `推拉面 ${op.distance >= 0 ? '+' : ''}${op.distance.toFixed(1)}mm`
     case 'boolean':
       return `${BOOL_LABELS[op.mode]} ${nameOf(op.targetId)}`
+    case 'pattern':
+      return `${op.mode === 'linear' ? '線性' : '圓形'}陣列 ×${op.count}`
+    case 'folder':
+      return op.action === 'create'
+        ? `新增資料夾 ${op.name ?? ''}`.trim()
+        : op.action === 'rename'
+          ? `資料夾改名 ${op.name ?? ''}`.trim()
+          : op.action === 'move'
+            ? op.folderId === null
+              ? '移出資料夾'
+              : '移入資料夾'
+            : '解散資料夾'
   }
 }
 
@@ -217,6 +261,11 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
         if (op.boolMode === 'union') {
           for (const id of (op.targetBodyIds ?? []).slice(1)) names.delete(id)
         }
+        break
+      case 'folder':
+        break
+      case 'pattern':
+        op.resultBodyIds.forEach((id, i) => names.set(id, `${op.name} ${i + 2}`))
         break
       case 'boolean':
         if (op.keepOriginals) {

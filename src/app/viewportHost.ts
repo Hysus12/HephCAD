@@ -60,6 +60,7 @@ export function createViewportHost(): ViewportHost {
         add: changed,
       })
     },
+    nextFolderId: () => documentController.nextFolderId(),
     undo: () => void documentController.undo(),
     redo: () => void documentController.redo(),
   }
