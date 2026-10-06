@@ -721,3 +721,65 @@ body {
   padding: 6px 8px;
   opacity: 0.9;
 }
+
+.appearance-panel {
+  position: absolute;
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.appearance-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.appearance-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+
+.appearance-swatch-active {
+  border-color: var(--accent, #4c8dff);
+}
+
+.appearance-custom {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.appearance-opacity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.appearance-opacity input[type='range'] {
+  flex: 1;
+  min-width: 160px;
+}
+
+.appearance-opacity output {
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

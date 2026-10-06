@@ -134,6 +134,13 @@ export type JournalOp =
       name?: string
       bodyIds?: number[]
     }
+  | {
+      /** 外觀（純文件層）：顏色 '#rrggbb' 與不透明度 0.05–1；沒給的欄位維持原樣。 */
+      kind: 'material'
+      bodyIds: number[]
+      color?: string
+      opacity?: number
+    }
   | { kind: 'importStep'; bodyId: number; name: string; data: string }
   | { kind: 'transform'; bodyId: number; translation: Translation; rotation?: Rotation }
   | {
@@ -220,6 +227,10 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       return `${BOOL_LABELS[op.mode]} ${nameOf(op.targetId)}`
     case 'pattern':
       return `${op.mode === 'linear' ? '線性' : '圓形'}陣列 ×${op.count}`
+    case 'material':
+      return op.opacity !== undefined && op.color === undefined
+        ? `透明度 ${Math.round(op.opacity * 100)}%`
+        : '外觀'
     case 'folder':
       return op.action === 'create'
         ? `新增資料夾 ${op.name ?? ''}`.trim()
@@ -263,6 +274,7 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
         }
         break
       case 'folder':
+      case 'material':
         break
       case 'pattern':
         op.resultBodyIds.forEach((id, i) => names.set(id, `${op.name} ${i + 2}`))

@@ -42,6 +42,7 @@ import {
   type SelectionItem,
 } from '../state/appStore.ts'
 import {
+  applyBodyMaterial,
   buildBodyObject,
   disposeBodyObject,
   sharedClippingPlanes,
@@ -51,6 +52,7 @@ import { CameraRig } from './CameraRig.ts'
 import { DrawController, type DrawTarget } from './DrawController.ts'
 import { ExtrudePreview } from './ExtrudePreview.ts'
 import { dragHeight, type Px } from './extrudeMath.ts'
+import { DEFAULT_MATERIAL, type BodyMaterial } from '../doc/materials.ts'
 import { GestureController, type PrimaryRole } from './gestures.ts'
 import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
 import { angleAboutAxis, screenAngleDelta } from './rotateMath.ts'
@@ -152,6 +154,7 @@ export class Viewport {
   private readonly viewCube = new ViewCube()
   private readonly resizeObserver: ResizeObserver
   private readonly bodies = new Map<number, BodyObject>()
+  private materials = new Map<number, BodyMaterial>()
   private readonly meshes = new Map<number, MeshData>()
   private readonly sketchLayers = new Map<number, SketchLayer>()
   private readonly raycaster = new Raycaster()
@@ -293,8 +296,25 @@ export class Viewport {
 
   // ---- 文件層同步 ----
 
+  /** 外觀（顏色/透明度）：由 journal 推導，沒列到的本體用預設。 */
+  setMaterials(materials: Map<number, BodyMaterial>): void {
+    this.materials = materials
+    for (const [bodyId, body] of this.bodies) applyBodyMaterial(body, materials.get(bodyId) ?? DEFAULT_MATERIAL)
+    this.invalidate()
+  }
+
+  /** 滑桿拖曳中的即時預覽（放開後才寫進 journal）。 */
+  previewMaterial(bodyIds: number[], material: Partial<BodyMaterial>): void {
+    for (const id of bodyIds) {
+      const body = this.bodies.get(id)
+      if (body) applyBodyMaterial(body, { ...(this.materials.get(id) ?? DEFAULT_MATERIAL), ...material })
+    }
+    this.invalidate()
+  }
+
   addBody(bodyId: number, mesh: MeshData): void {
     const body = buildBodyObject(bodyId, mesh)
+    applyBodyMaterial(body, this.materials.get(bodyId) ?? DEFAULT_MATERIAL)
     this.bodies.set(bodyId, body)
     this.meshes.set(bodyId, mesh)
     this.scene.add(body.group)

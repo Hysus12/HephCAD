@@ -38,6 +38,8 @@ export function ContextBar() {
   const keepOriginals = useAppStore((s) => s.keepOriginals)
   const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
   const folders = useAppStore((s) => s.folders)
+  const appearanceOpen = useAppStore((s) => s.appearanceOpen)
+  const setAppearanceOpen = useAppStore((s) => s.setAppearanceOpen)
   const patternType = useAppStore((s) => s.patternType)
   const patternCount = useAppStore((s) => s.patternCount)
   const patternDefinition = useAppStore((s) => s.patternDefinition)
@@ -188,6 +190,13 @@ export function ContextBar() {
       )}
       {only('body') && (
         <>
+          <button
+            className={`context-button ${appearanceOpen ? 'context-button-active' : ''}`}
+            aria-pressed={appearanceOpen}
+            onClick={() => setAppearanceOpen(!appearanceOpen)}
+          >
+            外觀
+          </button>
           <button
             className="context-button"
             title="把選取的本體收進新資料夾"

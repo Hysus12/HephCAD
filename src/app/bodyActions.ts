@@ -74,6 +74,29 @@ export function toggleFolderVisibility(bodyIds: number[]): void {
   for (const b of members) store.setBodyVisible(b.bodyId, show)
 }
 
+/**
+ * 設定外觀。連續調整同一批本體時併入同一步（amend），undo 一次就回到調整前。
+ * 滑桿拖曳中請先用 viewport.previewMaterial 預覽，放開才呼叫這個。
+ */
+export async function setAppearance(
+  bodyIds: number[],
+  change: { color?: string; opacity?: number },
+): Promise<void> {
+  const last = documentController.lastOp()
+  const same =
+    last?.kind === 'material' &&
+    last.bodyIds.length === bodyIds.length &&
+    last.bodyIds.every((id, i) => id === bodyIds[i])
+  const op = {
+    kind: 'material' as const,
+    bodyIds,
+    ...(same ? { color: last.color, opacity: last.opacity } : {}),
+    ...change,
+  }
+  if (same) await documentController.amendLast(op)
+  else await documentController.apply(op)
+}
+
 /** 複製目前選取的 body（帶偏移，經 journal）。 */
 export async function copySelectedBody(): Promise<void> {
   const store = useAppStore.getState()

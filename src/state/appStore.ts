@@ -94,6 +94,12 @@ export interface AppState {
   setBodyVisible: (bodyId: number, visible: boolean) => void
 
   /** 資料夾（由 journal 推導；展開狀態是本地視圖狀態）。 */
+  /** 與預設不同的本體外觀（bodyId → 顏色/透明度）。 */
+  materials: Record<number, { color: string; opacity: number }>
+  setMaterials: (materials: Record<number, { color: string; opacity: number }>) => void
+  /** 外觀面板（情境列的「外觀」）是否展開。 */
+  appearanceOpen: boolean
+  setAppearanceOpen: (open: boolean) => void
   folders: FolderEntry[]
   setFolders: (list: Omit<FolderEntry, 'expanded'>[]) => void
   toggleFolderExpanded: (folderId: number) => void
@@ -196,6 +202,10 @@ export const useAppStore = create<AppState>()((set) => ({
       bodies: s.bodies.map((b) => (b.bodyId === bodyId ? { ...b, visible } : b)),
     })),
 
+  materials: {},
+  setMaterials: (materials) => set({ materials }),
+  appearanceOpen: false,
+  setAppearanceOpen: (open) => set({ appearanceOpen: open }),
   folders: [],
   setFolders: (list) =>
     set((s) => {

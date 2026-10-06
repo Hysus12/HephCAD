@@ -3,6 +3,7 @@ import { documentController, services } from './app/services.ts'
 import { deleteSelection, selectTool } from './app/viewportHost.ts'
 import { KernelClient } from './kernel/KernelClient.ts'
 import { useAppStore, type ActiveTool } from './state/appStore.ts'
+import { AppearancePanel } from './ui/AppearancePanel.tsx'
 import { BooleanBadge } from './ui/BooleanBadge.tsx'
 import { ContextBar } from './ui/ContextBar.tsx'
 import { DimensionOverlay } from './ui/DimensionOverlay.tsx'
@@ -85,7 +86,14 @@ export function App() {
       <ContextBar />
       <DimensionOverlay />
       <BooleanBadge />
+      <AppearanceHost />
       <Toast />
     </div>
   )
+}
+
+/** 情境列的「外觀」按下後才顯示面板。 */
+function AppearanceHost() {
+  const open = useAppStore((s) => s.appearanceOpen)
+  return open ? <AppearancePanel /> : null
 }
