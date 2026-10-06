@@ -169,6 +169,7 @@ export class Viewport {
   private readonly meshes = new Map<number, MeshData>()
   private readonly sketchLayers = new Map<number, SketchLayer>()
   private readonly planeLayers = new Map<number, PlaneLayer>()
+  private lastRejectToast = -Infinity
   private planeEntities = new Map<number, PlaneEntity>()
   private readonly raycaster = new Raycaster()
   private readonly highlighter: SelectionHighlighter
@@ -278,6 +279,13 @@ export class Viewport {
       multiTap: (fingers) => {
         if (fingers === 2) this.host?.undo()
         else if (fingers === 3) this.host?.redo()
+      },
+      touchRejected: () => {
+        // 手指被當成手掌：最多每 4 秒提示一次，讓「手指沒反應」看得出原因
+        const now = performance.now()
+        if (now - this.lastRejectToast < 4000) return
+        this.lastRejectToast = now
+        useAppStore.getState().showToast('偵測到 Apple Pencil 正在使用，手指暫時被忽略')
       },
       penDetected: () => {
         const store = useAppStore.getState()

@@ -24,6 +24,7 @@ function setup(roleFor: (type: string) => PrimaryRole = () => 'orbit') {
     hoverEnd: vi.fn(),
     multiTap: vi.fn(),
     penDetected: vi.fn(),
+    touchRejected: vi.fn(),
   } satisfies Mocked
   const g = new GestureController(cb as unknown as GestureCallbacks, () => clock.now)
   return { g, cb, clock }
@@ -220,11 +221,24 @@ describe('Apple Pencil 防誤觸', () => {
     expect(s.cb.primaryMove).toHaveBeenCalledWith(30, 0)
   })
 
-  it('接觸面積很大的觸控視為手掌', () => {
-    s.g.onPointerDown(ev(2, 300, 300, 'touch', { width: 80, height: 70 }))
+  it('接觸面積再大也不當手掌：iPad Safari 的手指就會回報很大的寬高', () => {
+    s.g.onPointerDown(ev(2, 300, 300, 'touch', { width: 120, height: 120 }))
     s.g.onPointerMove(ev(2, 330, 300, 'touch'))
-    expect(s.cb.beginPrimary).not.toHaveBeenCalled()
-    expect(s.cb.orbit).not.toHaveBeenCalled()
+    expect(s.cb.beginPrimary).toHaveBeenCalled()
+    expect(s.cb.orbit).toHaveBeenCalled()
+  })
+
+  it('雙指（接觸面積很大）仍可平移縮放', () => {
+    s.g.onPointerDown(ev(2, 300, 300, 'touch', { width: 100, height: 100 }))
+    s.g.onPointerDown(ev(3, 400, 300, 'touch', { width: 100, height: 100 }))
+    s.g.onPointerMove(ev(3, 500, 300, 'touch'))
+    expect(s.cb.dolly).toHaveBeenCalled()
+  })
+
+  it('被當手掌忽略時通知呼叫端（筆接觸中）', () => {
+    s.g.onPointerDown(ev(1, 0, 0, 'pen'))
+    s.g.onPointerDown(ev(2, 300, 300, 'touch'))
+    expect(s.cb.touchRejected).toHaveBeenCalledTimes(1)
   })
 })
 
