@@ -3,6 +3,7 @@
 
 import type { SketchCurve, SketchPlane } from '../sketch/model.ts'
 import { resizeCurve } from '../sketch/dimensions.ts'
+import { resizeLineConnected } from '../sketch/edit.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 import { isBodySelection, useAppStore, type ActiveTool } from '../state/appStore.ts'
 import type { ViewportHost } from '../viewport/Viewport.ts'
@@ -13,7 +14,7 @@ export function createViewportHost(): ViewportHost {
     kernel: () => services.kernel,
     commit: (op) => documentController.apply(op),
     amend: (op) => documentController.amendLast(op),
-    async commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind) {
+    async commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool?: ToolKind) {
       const { sketchId, nextCurveId } = documentController.sketchFor(plane, hostBodyId)
       await documentController.apply({
         kind: 'sketch',
@@ -36,6 +37,31 @@ export function createViewportHost(): ViewportHost {
         add: last.add.map((c) => (c === target ? resized : c)),
       })
     },
+    async resizeSketchCurve(sketchId: number, curveId: number, value: number) {
+      const sketch = documentController.sketches().get(sketchId)
+      const curve = sketch?.curves.find((c) => c.id === curveId)
+      if (!sketch || !curve) return
+      // 直線：相接的線跟著動（矩形改一邊仍是矩形）；圓：直接改半徑
+      const changed =
+        curve.kind === 'line'
+          ? resizeLineConnected(sketch.curves, curveId, value)
+          : (() => {
+              const r = resizeCurve(curve, value)
+              return r ? [r] : null
+            })()
+      if (!changed || changed.length === 0) return
+      await documentController.apply({
+        kind: 'sketch',
+        sketchId,
+        plane: sketch.plane,
+        hostBodyId: sketch.hostBodyId,
+        // 同 id 先移除再加入：選取與標籤都不會失效
+        remove: changed.map((c) => c.id),
+        add: changed,
+      })
+    },
+    nextFolderId: () => documentController.nextFolderId(),
+    nextPlaneId: () => documentController.nextPlaneId(),
     undo: () => void documentController.undo(),
     redo: () => void documentController.redo(),
   }

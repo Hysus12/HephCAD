@@ -1,3 +1,4 @@
+import { BOOL_LABELS, type BoolMode } from '../doc/journal.ts'
 import { isBodySelection, useAppStore } from '../state/appStore.ts'
 import { documentController, services } from './services.ts'
 
@@ -10,6 +11,101 @@ export function toggleBodyVisibility(bodyId: number): void {
   const store = useAppStore.getState()
   const entry = store.bodies.find((b) => b.bodyId === bodyId)
   if (entry) store.setBodyVisible(bodyId, !entry.visible)
+}
+
+/**
+ * 獨立布林（Shapr3D 的 Union / Subtract / Intersect）：先選的本體是目標，其餘是工具體。
+ * 需要本體重疊；「保留原本體」開啟時結果是新本體、原本體都留著。
+ */
+export async function applyBoolean(mode: Exclude<BoolMode, 'new'>): Promise<void> {
+  const store = useAppStore.getState()
+  const picked = store.selection.filter(isBodySelection).filter((i) => i.kind === 'body')
+  if (picked.length < 2) return
+  const [target, ...tools] = picked
+  const nameOf = (id: number) => store.bodies.find((b) => b.bodyId === id)?.name ?? `主體 ${id}`
+  try {
+    await documentController.apply({
+      kind: 'boolean',
+      mode,
+      targetId: target.bodyId,
+      toolIds: tools.map((t) => t.bodyId),
+      keepOriginals: store.keepOriginals,
+      resultBodyId: 0,
+      name: `${nameOf(target.bodyId)} ${BOOL_LABELS[mode]}`,
+    })
+    store.clearSelection()
+  } catch (e) {
+    store.showToast(`${BOOL_LABELS[mode]}失敗：${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+/** 把本體收進新資料夾（經 journal，可 undo）。 */
+export async function createFolder(bodyIds: number[]): Promise<void> {
+  await documentController.apply({
+    kind: 'folder',
+    action: 'create',
+    folderId: documentController.nextFolderId(),
+    name: '資料夾',
+    bodyIds,
+  })
+}
+
+export async function renameFolder(folderId: number, name: string): Promise<void> {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await documentController.apply({ kind: 'folder', action: 'rename', folderId, name: trimmed })
+}
+
+/** folderId 為 null＝移出資料夾。 */
+export async function moveToFolder(bodyIds: number[], folderId: number | null): Promise<void> {
+  await documentController.apply({ kind: 'folder', action: 'move', folderId, bodyIds })
+}
+
+/** 解散資料夾：本體留著，只是不再分組。 */
+export async function ungroupFolder(folderId: number): Promise<void> {
+  await documentController.apply({ kind: 'folder', action: 'delete', folderId })
+}
+
+/** 資料夾的眼睛：全顯示或全隱藏。 */
+export function toggleFolderVisibility(bodyIds: number[]): void {
+  const store = useAppStore.getState()
+  const members = store.bodies.filter((b) => bodyIds.includes(b.bodyId))
+  const show = members.some((b) => !b.visible)
+  for (const b of members) store.setBodyVisible(b.bodyId, show)
+}
+
+/** 以世界基準面（上/前/右）建立偏移建構平面，建立後可輸入偏移量。 */
+export async function createBasePlane(base: 'top' | 'front' | 'right'): Promise<void> {
+  const normal: [number, number, number] =
+    base === 'top' ? [0, 0, 1] : base === 'front' ? [0, 1, 0] : [1, 0, 0]
+  await services.viewport?.createOffsetPlane({ normal, point: [0, 0, 0] }, 200)
+}
+
+export async function deletePlane(planeId: number): Promise<void> {
+  await documentController.apply({ kind: 'plane', action: 'delete', planeId })
+}
+
+/**
+ * 設定外觀。連續調整同一批本體時併入同一步（amend），undo 一次就回到調整前。
+ * 滑桿拖曳中請先用 viewport.previewMaterial 預覽，放開才呼叫這個。
+ */
+export async function setAppearance(
+  bodyIds: number[],
+  change: { color?: string; opacity?: number },
+): Promise<void> {
+  const last = documentController.lastOp()
+  const same =
+    last?.kind === 'material' &&
+    last.bodyIds.length === bodyIds.length &&
+    last.bodyIds.every((id, i) => id === bodyIds[i])
+  const op = {
+    kind: 'material' as const,
+    bodyIds,
+    ...(same ? { color: last.color, opacity: last.opacity } : {}),
+    ...change,
+  }
+  if (same) await documentController.amendLast(op)
+  else await documentController.apply(op)
 }
 
 /** 複製目前選取的 body（帶偏移，經 journal）。 */

@@ -1,9 +1,25 @@
 import { create } from 'zustand'
 import type { KernelStatus } from '../kernel/KernelClient.ts'
+import type { BoolMode } from '../doc/journal.ts'
 import type { ToolKind } from '../sketch/tools.ts'
 
 export interface BodyEntry {
   bodyId: number
+  name: string
+  visible: boolean
+}
+
+export interface FolderEntry {
+  folderId: number
+  name: string
+  bodyIds: number[]
+  auto: boolean
+  /** 本地視圖狀態：展開/收合（跨推導保留）。 */
+  expanded: boolean
+}
+
+export interface PlaneEntry {
+  planeId: number
   name: string
   visible: boolean
 }
@@ -53,6 +69,10 @@ export interface DimensionLabel {
   y: number
   editable: boolean
   value: number
+  /** 主數值的單位（鍵盤顯示用），預設 mm；旋轉是 °。 */
+  unit?: string
+  /** 第二個可點的參數（倒角角度）。 */
+  secondary?: { text: string; value: number; unit: string; editable: boolean }
 }
 
 /**
@@ -79,6 +99,25 @@ export interface AppState {
   removeBody: (bodyId: number) => void
   setBodyVisible: (bodyId: number, visible: boolean) => void
 
+  /** 資料夾（由 journal 推導；展開狀態是本地視圖狀態）。 */
+  /** 與預設不同的本體外觀（bodyId → 顏色/透明度）。 */
+  materials: Record<number, { color: string; opacity: number }>
+  setMaterials: (materials: Record<number, { color: string; opacity: number }>) => void
+  /** 外觀面板（情境列的「外觀」）是否展開。 */
+  appearanceOpen: boolean
+  setAppearanceOpen: (open: boolean) => void
+  folders: FolderEntry[]
+  setFolders: (list: Omit<FolderEntry, 'expanded'>[]) => void
+  toggleFolderExpanded: (folderId: number) => void
+
+  /** 建構平面（由 journal 推導；顯示/隱藏是本地視圖狀態）。 */
+  planes: PlaneEntry[]
+  setPlanes: (list: Omit<PlaneEntry, 'visible'>[]) => void
+  setPlaneVisible: (planeId: number, visible: boolean) => void
+  /** 目前用來畫草圖的建構平面（雙擊平面選取）；null＝依點到的面/地面。 */
+  activePlaneId: number | null
+  setActivePlaneId: (planeId: number | null) => void
+
   /** 文件中的草圖（由 journal 推導；顯示/隱藏是本地視圖狀態，跨推導保留）。 */
   sketches: SketchEntry[]
   setSketches: (list: Omit<SketchEntry, 'visible'>[]) => void
@@ -90,8 +129,8 @@ export interface AppState {
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
 
-  /** 情境操作模式（依選取出現：移動/圓角/倒角/抽殼）。選取變更即重置。 */
-  toolMode: 'move' | 'fillet' | 'chamfer' | 'shell' | null
+  /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
+  toolMode: 'move' | 'shell' | 'pattern' | 'plane' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
   activeTool: ActiveTool
@@ -105,8 +144,31 @@ export interface AppState {
 
   dimension: DimensionLabel | null
   setDimension: (label: DimensionLabel | null) => void
-  keypadOpen: boolean
-  setKeypadOpen: (open: boolean) => void
+  /** 數字鍵盤正在編輯哪個欄位（null = 關閉）。 */
+  keypad: 'primary' | 'secondary' | null
+  setKeypad: (target: 'primary' | 'secondary' | null) => void
+
+  /** 陣列設定：線性/圓形、總數（含原本體）、線性以「間距」或「總長」定義。 */
+  patternType: 'linear' | 'circular'
+  patternCount: number
+  patternDefinition: 'spacing' | 'total'
+  setPatternType: (type: 'linear' | 'circular') => void
+  setPatternCount: (count: number) => void
+  setPatternDefinition: (definition: 'spacing' | 'total') => void
+
+  /** 擠出後的布林徽章（聯集/新本體/減去/交集）；mode 是目前生效的那個。 */
+  boolBadge: { mode: BoolMode } | null
+  setBoolBadge: (badge: { mode: BoolMode } | null) => void
+  /** 拷貝徽章（Shapr3D）：開啟時移動/旋轉的是副本，原本體不動。 */
+  copyMode: boolean
+  toggleCopyMode: () => void
+  /** 獨立布林是否保留原本體（結果成為新本體）。 */
+  keepOriginals: boolean
+  toggleKeepOriginals: () => void
+
+  /** 拖曳倒角時使用的角度（度）；預設 45＝兩側等距。 */
+  chamferAngleDeg: number
+  setChamferAngle: (deg: number) => void
 
   toast: { text: string; id: number } | null
   showToast: (text: string) => void
@@ -154,6 +216,21 @@ export const useAppStore = create<AppState>()((set) => ({
       bodies: s.bodies.map((b) => (b.bodyId === bodyId ? { ...b, visible } : b)),
     })),
 
+  materials: {},
+  setMaterials: (materials) => set({ materials }),
+  appearanceOpen: false,
+  setAppearanceOpen: (open) => set({ appearanceOpen: open }),
+  folders: [],
+  setFolders: (list) =>
+    set((s) => {
+      const expanded = new Map(s.folders.map((f) => [f.folderId, f.expanded]))
+      return { folders: list.map((f) => ({ ...f, expanded: expanded.get(f.folderId) ?? true })) }
+    }),
+  toggleFolderExpanded: (folderId) =>
+    set((s) => ({
+      folders: s.folders.map((f) => (f.folderId === folderId ? { ...f, expanded: !f.expanded } : f)),
+    })),
+
   sketches: [],
   setSketches: (list) =>
     set((s) => {
@@ -165,6 +242,20 @@ export const useAppStore = create<AppState>()((set) => ({
         selection: s.selection.filter((item) => isBodySelection(item) || alive.has(item.sketchId)),
       }
     }),
+  planes: [],
+  setPlanes: (list) =>
+    set((s) => {
+      const visibility = new Map(s.planes.map((e) => [e.planeId, e.visible]))
+      const alive = new Set(list.map((e) => e.planeId))
+      return {
+        planes: list.map((e) => ({ ...e, visible: visibility.get(e.planeId) ?? true })),
+        activePlaneId: s.activePlaneId !== null && alive.has(s.activePlaneId) ? s.activePlaneId : null,
+      }
+    }),
+  setPlaneVisible: (planeId, visible) =>
+    set((s) => ({ planes: s.planes.map((e) => (e.planeId === planeId ? { ...e, visible } : e)) })),
+  activePlaneId: null,
+  setActivePlaneId: (planeId) => set({ activePlaneId: planeId }),
   setSketchVisible: (sketchId, visible) =>
     set((s) => ({
       sketches: s.sketches.map((e) => (e.sketchId === sketchId ? { ...e, visible } : e)),
@@ -207,8 +298,25 @@ export const useAppStore = create<AppState>()((set) => ({
 
   dimension: null,
   setDimension: (label) => set({ dimension: label }),
-  keypadOpen: false,
-  setKeypadOpen: (open) => set({ keypadOpen: open }),
+  keypad: null,
+  setKeypad: (target) => set({ keypad: target }),
+
+  boolBadge: null,
+  setBoolBadge: (badge) => set({ boolBadge: badge }),
+  patternType: 'linear',
+  patternCount: 3,
+  patternDefinition: 'spacing',
+  setPatternType: (type) => set({ patternType: type }),
+  setPatternCount: (count) => set({ patternCount: Math.max(2, Math.min(50, Math.round(count))) }),
+  setPatternDefinition: (definition) => set({ patternDefinition: definition }),
+
+  copyMode: false,
+  toggleCopyMode: () => set((s) => ({ copyMode: !s.copyMode })),
+  keepOriginals: false,
+  toggleKeepOriginals: () => set((s) => ({ keepOriginals: !s.keepOriginals })),
+
+  chamferAngleDeg: 45,
+  setChamferAngle: (deg) => set({ chamferAngleDeg: deg }),
 
   toast: null,
   showToast: (text) => set({ toast: { text, id: ++toastSeq } }),

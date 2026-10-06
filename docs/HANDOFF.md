@@ -4,6 +4,16 @@
 
 > 給接手的人/模型：先讀這份，再讀 [architecture.md](architecture.md)（已更新為免模式流程，含輸入模型與「sketch-and-extrude」流程）。
 
+## 後續分支 `shapr3d-parity`（接在 `ux-pencil-first` 之上，尚未合併）
+
+使用者要求「深度研究 Shapr3D 的功能與 UI/UX 並盡量移植」。研究與逐項對照見 [shapr3d-research.md](shapr3d-research.md)（Shapr3D 說明中心對爬蟲回 403，只讀得到摘要，**倒角角度是 HephCAD 的擴充，不是從官方資料驗證的**）。
+
+已完成（皆在瀏覽器以模擬筆事件驗證，數值用精確公式比對）：單一雙向圓角/倒角箭頭＋角度、任意線/圓長度可輸入（相接線跟著動）、擠出布林徽章與獨立布林、移動/旋轉環/拷貝、線性/圓形陣列、資料夾、材質（顏色/透明度）、偏移建構平面（雙擊選取後繪圖）、投影。
+
+架構重點：新的文件層狀態（草圖、資料夾、建構平面、外觀）全是 journal op，kernel 當 no-op，主執行緒用 `derive*` 純函式推導——新增同類功能照 `folders.ts`/`planes.ts`/`materials.ts` 的模式做。拖曳把手的流程在 `Viewport.beginManipulation` → `commitManipulation` → `armDimension`（放開後可點數字輸入並以 `amendLast` 取代那一步）。
+
+這輪的已知限制：沒有約束求解器；逐面材質、巢狀資料夾、偏移以外的建構平面、可拖動 gizmo 中心都沒做；斜投影的圓退回折線段；**全部沒有在真實 iPad/Pencil 上測過**。
+
 ## 背景與目標
 
 使用者回饋：體驗「跟 Shapr3D 差很多」，功能不足、操作不直覺，**尤其是 iPad + Apple Pencil**。
@@ -62,7 +72,7 @@
 4. ~~圓角/倒角/抽殼把手驗證~~ ✅ 瀏覽器已驗（見上表）。**仍待做**：移動（三軸箭頭）的完整拖曳驗證。
 5. **自動布林的判斷**：目前地面草圖擠出一律建新 body；畫在 body 面上的才會 fuse/cut 宿主。Shapr3D 會依是否與既有 body 相交決定。
 6. **草圖約束/尺寸**：只能在剛畫完時改長度/半徑；矩形寬高不可編輯（`describeCurves` 的 `editable: false`）。
-7. **旋轉 gizmo**（移動只有三軸平移）、偏移面、多 body 移動。
+7. ~~旋轉 gizmo~~ ✅ 已在 `shapr3d-parity` 完成；多 body 一起移動仍未做。
 8. 剖面視圖：可拖曳剖切面＋封蓋面（ADR/README 已列 M7.5）。
 9. 裁剪版 OCCT wasm（見 ADR 0005）。
 

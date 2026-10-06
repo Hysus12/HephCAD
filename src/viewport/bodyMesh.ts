@@ -73,6 +73,17 @@ export function buildBodyObject(bodyId: number, mesh: MeshData): BodyObject {
   }
 }
 
+/** 顏色與透明度：半透明時不寫深度，才看得到裡面的本體。 */
+export function applyBodyMaterial(body: BodyObject, material: { color: string; opacity: number }): void {
+  const surface = body.surface.material as MeshStandardMaterial
+  surface.color.set(material.color)
+  surface.opacity = material.opacity
+  const transparent = material.opacity < 0.999
+  if (surface.transparent !== transparent) surface.needsUpdate = true
+  surface.transparent = transparent
+  surface.depthWrite = !transparent
+}
+
 export function disposeBodyObject(body: BodyObject): void {
   body.group.traverse((obj) => {
     if (obj instanceof Mesh || obj instanceof LineSegments) {

@@ -47,11 +47,21 @@ Serious CAD is either closed-source, desktop-bound, or too intimidating to touch
 - **Modify tools**: select a body and a context bar appears — move it with three axis arrows or copy it. Select edges and drag the orange arrow to fillet or chamfer with a live kernel preview; select a face to push/pull it or shell the body open. Kernel failures (radius too big, wall too thick) degrade gracefully and never corrupt the journal.
 
   ![A shelled hollow box next to a copy with filleted edges, both made with drag gestures](docs/assets/modify-tools.png)
+- **Shapr3D-style modeling tools** (branch `shapr3d-parity`, see [docs/shapr3d-research.md](docs/shapr3d-research.md) for what was and wasn't verifiable):
+  - **Fillet/chamfer in one arrow** — pull out for a fillet, push in for a chamfer, or type a number (negative = chamfer, with a chamfer-angle field that goes beyond Shapr3D).
+  - **Editable lengths** — select any line or circle, tap the label, type a value; connected lines follow.
+  - **Booleans** — a Union / New Body / Subtract / Intersect badge appears after every extrude, plus standalone Union / Subtract / Intersect for two or more bodies, with Keep Originals.
+  - **Move / Rotate / Copy** — axis arrows, rotation rings with 5° snap, a Copy switch that drags a ghost duplicate, exact numbers everywhere.
+  - **Pattern** — linear (spacing or total length) and circular (total angle), with a count stepper and ghost preview; copies land in an automatic folder.
+  - **Construction planes** — offset a face or a base plane, double-tap a plane to draw on it.
+  - **Project** — send model edges or sketch lines onto a construction plane or face; circles and arcs stay exact.
+  - **Appearance** — per-body color and an opacity slider, inherited by copies.
+  - **Folders** — group, rename, move, and ungroup bodies in the items panel; undoable and autosaved.
 - **Measurement built into selection**: pick an edge and see its length, a face its area, a body its volume — no separate measure tool.
 - **Section view**: one tap slices the model at its center so you can see inside (no cap faces yet).
 - **Installable PWA**: the service worker precaches the whole app including the 50 MB kernel — second launch on iPad is instant and fully offline.
 - **Crash-proof kernel**: if the WASM kernel aborts (say, out of memory on an iPad), in-flight requests fail fast, the worker restarts, and your model is replayed from the in-memory journal in a few seconds. Ops that no longer succeed on replay are skipped and flagged in the history panel instead of losing the whole document.
-- 114 unit tests across gestures and palm rejection, picking, sketch geometry and derivation, snapping, tools, dimensions, mesh-derived face geometry, extrusion, the document journal, and kernel crash recovery.
+- 157 unit tests across gestures and palm rejection, picking, sketch geometry and derivation, snapping, tools, dimensions, mesh-derived face geometry, extrusion, the document journal, and kernel crash recovery.
 
 > **Honest status:** the Pencil-first interaction was reworked recently and verified with simulated pen/touch events in a browser, not yet on real iPad hardware. Palm-rejection timing, handle sizes, and hover are the likeliest things to need tuning — if you have an iPad and a Pencil, your feedback is the most valuable contribution right now. See [docs/HANDOFF.md](docs/HANDOFF.md) for exactly what is and isn't verified.
 
