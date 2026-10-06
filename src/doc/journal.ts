@@ -129,6 +129,7 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       return `抽殼 ${op.thickness.toFixed(1)}mm`
     case 'sketch': {
       if (op.add.length === 0) return `刪除草圖線 ×${op.remove.length}`
+      if (op.remove.length > 0) return `修改草圖尺寸`
       const names: Record<ToolKind, string> = {
         line: '直線',
         arc: '圓弧',

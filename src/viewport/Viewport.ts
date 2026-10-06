@@ -85,6 +85,8 @@ export interface ViewportHost {
   commitSketch(plane: SketchPlane, hostBodyId: number | null, curves: SketchCurve[], tool: ToolKind): Promise<void>
   /** 把最後畫的那條線/圓改成指定長度/半徑。 */
   resizeLastSketchCurve(value: number): Promise<void>
+  /** 把選取的線/圓改成指定長度/半徑（相接的線跟著動）。 */
+  resizeSketchCurve(sketchId: number, curveId: number, value: number): Promise<void>
   undo(): void
   redo(): void
 }
@@ -146,6 +148,8 @@ export class Viewport {
   } | null = null
   private dimensionApply: ((value: number) => Promise<void>) | null = null
   private lastDimensionPx: Px | null = null
+  /** 目前的尺寸標籤是否屬於「選取的草圖線」（換選取時才需要清掉）。 */
+  private curveDimensionOwner = false
   private rafHandle = 0
   private lastFrameTime = 0
   private needsRender = true
@@ -186,7 +190,10 @@ export class Viewport {
         this.draw.hoverEnd()
         this.invalidate()
       }
-      if (state.selection !== prev.selection) this.clearDimension()
+      if (state.selection !== prev.selection) {
+        this.clearDimension()
+        this.refreshCurveDimension()
+      }
       if (
         state.selection !== prev.selection ||
         state.bodies !== prev.bodies ||
@@ -328,7 +335,48 @@ export class Viewport {
     this.syncVisibility()
     this.syncHighlights()
     this.syncHandles()
+    this.refreshCurveDimension()
     this.invalidate()
+  }
+
+  /**
+   * 選到單一草圖線/圓時顯示它的尺寸，點擊輸入精確值（沒有獨立的尺寸工具——
+   * 跟 Shapr3D 一樣，選取即顯示）。其他情況不碰標籤（拖曳/繪圖中的標籤另有所有者）。
+   */
+  private refreshCurveDimension(): void {
+    if (this.manip || this.drawing) return
+    const { selection } = useAppStore.getState()
+    const item = selection.length === 1 ? selection[0] : null
+    if (!item || item.kind !== 'curve') {
+      if (this.curveDimensionOwner) {
+        this.curveDimensionOwner = false
+        this.clearDimension()
+      }
+      return
+    }
+    const layer = this.sketchLayers.get(item.sketchId)
+    const curve = layer?.entity.curves.find((c) => c.id === item.curveId)
+    const dim = curve && describeCurves([curve], 'line')
+    if (!layer || !curve || !dim) {
+      this.curveDimensionOwner = false
+      this.clearDimension()
+      return
+    }
+    // 直線標在中點，圓/弧用 describeCurves 給的錨點
+    const anchorUv =
+      curve.kind === 'line'
+        ? { x: (curve.a.x + curve.b.x) / 2, y: (curve.a.y + curve.b.y) / 2 }
+        : dim.anchor
+    const world = new Vector3(...planeAnchor(layer.entity.plane, anchorUv))
+    this.curveDimensionOwner = true
+    this.setDimension(
+      dim.text,
+      world,
+      dim.value,
+      dim.editable
+        ? (v) => this.host!.resizeSketchCurve(item.sketchId, item.curveId, v)
+        : null,
+    )
   }
 
   /** 等所有草圖的區域偵測完成。 */
@@ -1119,6 +1167,7 @@ export class Viewport {
   }
 
   private clearDimension(): void {
+    this.curveDimensionOwner = false
     if (!this.dimension && !this.dimensionApply) return
     this.dimension = null
     this.dimensionApply = null
