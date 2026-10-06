@@ -1,8 +1,8 @@
 # 交接紀錄：Pencil-first UX 重構
 
-最後更新：2026-10-06　分支：`ux-pencil-first`（尚未開 PR、尚未合併 `main`）
+最後更新：2026-10-06（Sonnet 5.5 接手後）　分支：`ux-pencil-first`（已開 PR，**尚未合併 `main`**——合併會觸發 Pages 部署、替換線上 demo，由使用者決定時機）
 
-> 給接手的人/模型：先讀這份，再讀 [architecture.md](architecture.md)（注意其中「Life of a drag-extrude」一節**已過時**，見待辦 #1）。
+> 給接手的人/模型：先讀這份，再讀 [architecture.md](architecture.md)（已更新為免模式流程，含輸入模型與「sketch-and-extrude」流程）。
 
 ## 背景與目標
 
@@ -27,7 +27,8 @@
 | 免模式繪圖：落點決定平面（進行中圓弧 → 既有草圖區域 → 模型平面 → 地面），曲面上提示不能畫 | `viewport/Viewport.ts`（`drawTargetAt`）、`viewport/DrawController.ts`、`sketch/plane.ts` | 瀏覽器 |
 | 在面上畫圖時吸附模型頂點與直線邊中點 | `sketch/snapping.ts`（`extraPoints`）、`viewport/meshGeometry.ts` | 單元測試 |
 | 筆懸停顯示落筆會吸附的位置 | `DrawController.hover` | 僅程式路徑，未實機驗證 |
-| 箭頭把手：區域擠出、平面推拉、三軸移動、圓角/倒角/抽殼 | `viewport/HandleLayer.ts`、`Viewport.computeHandles/beginManipulation` | 擠出、推拉已在瀏覽器驗證 |
+| 箭頭把手：區域擠出、平面推拉、三軸移動、圓角/倒角/抽殼 | `viewport/HandleLayer.ts`、`Viewport.computeHandles/beginManipulation` | 擠出、推拉、**圓角、倒角、抽殼**已在瀏覽器以精確體積驗證（13mm 圓角移除 3626.8 = (1−π/4)·13²·100；抽殼 4mm 得 67776 = 240000−92·72·26）；移動箭頭尚未跑完整拖曳 |
+| 在板頂面畫圓 → 點圓 → 拖箭頭往下切孔（README 主流程） | 同上 | 通孔板體積 218794.25，誤差 0；7 個面 |
 | **新操作：推拉面**（平面沿法線長出/壓入） | `kernel/worker.ts`（`pushPullShape`）、journal `pushPull` op | 瀏覽器（體積精確） |
 | 布林後合併共面面（不再有接縫） | `worker.ts`（`unifySameDomain`） | 拉高方塊後仍是 6 面 12 邊 |
 | 即時尺寸標籤＋放開後點擊輸入精確值（數字鍵盤） | `ui/DimensionOverlay.tsx`、`DocumentController.amendLast`、`ViewportHost.resizeLastSketchCurve` | 擠出 103 → 輸入 40，體積 320,000 精確 |
@@ -55,15 +56,20 @@
 
 ## 待辦（依優先序）
 
-1. **更新 `docs/architecture.md`**：「Life of a drag-extrude」與「Recipe」描述的是舊的模式式草圖；README 的「The signature interaction」五步驟也要改成新流程（拿筆直接畫 → 點區域 → 拖箭頭）。README 的 Contributing/What works 也要提 Pencil 分工與兩指復原。
+1. ~~更新 `architecture.md` 與 README~~ ✅ 已完成（輸入模型、sketch-and-extrude 流程、新增操作的 recipe、README 主流程與狀態說明）。
 2. **iPad 實機驗證**（模擬器/瀏覽器測不到）：防誤觸手感、300ms 窗口是否合適、筆懸停（M2 以上 iPad Pro）、兩指點擊與捏合的誤判、把手 72px/26px 容差是否好抓。建議請使用者在 demo 站（合併 `main` 後自動部署）測。
 3. **首次使用導覽**：一張可關閉的卡片說明「筆畫圖、手指轉視角、兩指點擊復原」（`localStorage` 記住已讀）；以及「?」按鈕重開。
-4. **圓角/倒角/抽殼把手的實機驗證**：已實作但未在瀏覽器跑過完整拖曳（擠出與推拉有）。
+4. ~~圓角/倒角/抽殼把手驗證~~ ✅ 瀏覽器已驗（見上表）。**仍待做**：移動（三軸箭頭）的完整拖曳驗證。
 5. **自動布林的判斷**：目前地面草圖擠出一律建新 body；畫在 body 面上的才會 fuse/cut 宿主。Shapr3D 會依是否與既有 body 相交決定。
 6. **草圖約束/尺寸**：只能在剛畫完時改長度/半徑；矩形寬高不可編輯（`describeCurves` 的 `editable: false`）。
 7. **旋轉 gizmo**（移動只有三軸平移）、偏移面、多 body 移動。
 8. 剖面視圖：可拖曳剖切面＋封蓋面（ADR/README 已列 M7.5）。
 9. 裁剪版 OCCT wasm（見 ADR 0005）。
+
+## 這輪（Sonnet 5.5）驗證時抓到並修掉的 bug
+
+- **被實體擋住的草圖線搶走選取**：板子底下的原始矩形草圖線在點選頂面時被選中，導致看不到區域、無法擠出。`Viewport.pickAt` 現在要求草圖線命中距離不超過最近面的距離＋容差。*沒有自動化測試*（Viewport 需要 WebGL），靠上面的瀏覽器流程覆蓋——若要補測試，需先把命中優先序抽成純函式。
+- **量測用顯示用三角網格算**：圓柱/圓角的體積偏差約 0.05%，與「精確數值」的承諾不符。`worker.ts` 的 `measure` 現在傳 `UseTriangulation = false`（解析積分）。**風險**：大型/複雜（BSpline 很多）的 STEP 匯入體上，解析積分可能較慢；目前只在選取時觸發，若實機卡頓可對超過某面數的 body 退回網格。
 
 ## 已知問題與風險
 

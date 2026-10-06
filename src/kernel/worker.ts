@@ -522,6 +522,10 @@ async function handle(
   }
 }
 
+/**
+ * 量測用解析積分（UseTriangulation = false），不用顯示用的三角網格——
+ * 後者會把圓柱/圓角當多邊形算，體積偏差約 0.05%，違背「精確數值」。
+ */
 function measure(
   oc: OpenCascadeInstance,
   items: { bodyId: number; kind: 'body' | 'face' | 'edge'; topoId: number }[],
@@ -535,7 +539,7 @@ function measure(
     if (!shape) continue
     const props = new oc.GProp_GProps_1()
     if (item.kind === 'body') {
-      oc.BRepGProp.VolumeProperties_1(shape, props, false, false, true)
+      oc.BRepGProp.VolumeProperties_1(shape, props, false, false, false)
       add('volume', props.Mass())
     } else {
       const kind =
@@ -547,10 +551,10 @@ function measure(
       if (item.topoId >= 1 && item.topoId <= map.Extent()) {
         const sub = map.FindKey(item.topoId)
         if (item.kind === 'face') {
-          oc.BRepGProp.SurfaceProperties_1(sub, props, false, true)
+          oc.BRepGProp.SurfaceProperties_1(sub, props, false, false)
           add('area', props.Mass())
         } else {
-          oc.BRepGProp.LinearProperties(sub, props, false, true)
+          oc.BRepGProp.LinearProperties(sub, props, false, false)
           add('length', props.Mass())
         }
       }

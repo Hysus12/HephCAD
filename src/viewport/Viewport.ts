@@ -912,15 +912,23 @@ export class Viewport {
     )
     this.raycaster.params.Line.threshold = threshold
 
-    for (const [sketchId, layer] of this.sketchLayers) {
-      const hit = layer.pickCurve(this.raycaster, visiblePoint)
-      if (hit) return { kind: 'curve', sketchId, curveId: hit.curveId }
-    }
-
     const bodies = this.visibleBodies()
     const faceHit = this.raycaster
       .intersectObjects(bodies.map((b) => b.surface), false)
       .find((h) => visiblePoint(h.point))
+
+    // 草圖線：被實體擋住的（例如板子底下的原始矩形）不可選，否則會搶走面上的點選
+    let curveHit: { sketchId: number; curveId: number; distance: number } | null = null
+    for (const [sketchId, layer] of this.sketchLayers) {
+      const hit = layer.pickCurve(this.raycaster, visiblePoint)
+      if (hit && (!curveHit || hit.distance < curveHit.distance)) {
+        curveHit = { sketchId, curveId: hit.curveId, distance: hit.distance }
+      }
+    }
+    if (curveHit && (!faceHit || curveHit.distance <= faceHit.distance + threshold)) {
+      return { kind: 'curve', sketchId: curveHit.sketchId, curveId: curveHit.curveId }
+    }
+
     const edgeHit = this.raycaster
       .intersectObjects(bodies.map((b) => b.edges), false)
       .find((h) => visiblePoint(h.point))
