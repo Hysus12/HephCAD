@@ -97,9 +97,12 @@ interface Manipulation {
   axisPx: Px
   value: number
   preview: ExtrudePreview | null
-  build: (value: number) => JournalOp | null
+  /** angle 只有圓角/倒角用（倒角角度，度）。 */
+  build: (value: number, angle?: number) => JournalOp | null
   label: (value: number) => string
-  /** 圓角/抽殼的 kernel 預覽節流。 */
+  /** 圓角/倒角合一：正值＝圓角、負值＝倒角（倒角時才有角度欄位）。 */
+  blend: boolean
+  /** 圓角/倒角/抽殼的 kernel 預覽節流。 */
   param: { inFlight: boolean; pending: number | null; ghost: BodyObject | null } | null
   minValue: number
 }
@@ -134,8 +137,13 @@ export class Viewport {
   private drawing = false
   private drawPlane = new Plane()
   private manip: Manipulation | null = null
-  private dimension: { text: string; editable: boolean; value: number; anchor: Vector3 } | null =
-    null
+  private dimension: {
+    text: string
+    editable: boolean
+    value: number
+    anchor: Vector3
+    secondary: { text: string; value: number; unit: string; apply: ((v: number) => Promise<void>) | null } | null
+  } | null = null
   private dimensionApply: ((value: number) => Promise<void>) | null = null
   private lastDimensionPx: Px | null = null
   private rafHandle = 0
@@ -347,6 +355,13 @@ export class Viewport {
   /** 尺寸標籤上輸入了精確值。 */
   async applyDimensionValue(value: number): Promise<void> {
     const apply = this.dimensionApply
+    this.clearDimension()
+    if (apply) await apply(value)
+  }
+
+  /** 第二欄位（倒角角度）輸入了精確值。 */
+  async applySecondaryValue(value: number): Promise<void> {
+    const apply = this.dimension?.secondary?.apply
     this.clearDimension()
     if (apply) await apply(value)
   }
@@ -577,6 +592,7 @@ export class Viewport {
                 },
           label: formatSigned,
           param: null,
+          blend: false,
           minValue: -Infinity,
         }
         break
@@ -599,6 +615,7 @@ export class Viewport {
               : { kind: 'pushPull', bodyId: action.bodyId, faceId: action.faceId, distance },
           label: formatSigned,
           param: null,
+          blend: false,
           minValue: -Infinity,
         }
         break
@@ -617,22 +634,44 @@ export class Viewport {
                 },
           label: formatSigned,
           param: null,
+          blend: false,
           minValue: -Infinity,
         }
         break
       }
-      case 'param': {
-        const { mode, bodyId, ids } = action
+      case 'blend': {
+        const { bodyId, ids } = action
         manip = {
           preview: null,
-          build: (v) =>
-            v < 0.1
-              ? null
-              : mode === 'shell'
-                ? { kind: 'shell', bodyId, faceIds: ids, thickness: v }
-                : { kind: 'fillet', bodyId, edgeIds: ids, radius: v, chamfer: mode === 'chamfer' },
-          label: (v) => (mode === 'shell' ? `壁厚 ${formatMm(v)}` : `R ${formatMm(v)}`),
+          // 外拉（正）＝圓角、內推（負）＝倒角；倒角帶角度，45° 即兩側等距
+          build: (v, angle) => {
+            if (Math.abs(v) < 0.1) return null
+            if (v > 0) return { kind: 'fillet', bodyId, edgeIds: ids, radius: v, chamfer: false }
+            const deg = angle ?? useAppStore.getState().chamferAngleDeg
+            return {
+              kind: 'fillet',
+              bodyId,
+              edgeIds: ids,
+              radius: -v,
+              chamfer: true,
+              ...(Math.abs(deg - 45) > 1e-6 ? { angleDeg: deg } : {}),
+            }
+          },
+          label: (v) => (v >= 0 ? `圓角 R ${formatMm(v)}` : `倒角 ${formatMm(-v)}`),
           param: { inFlight: false, pending: null, ghost: null },
+          blend: true,
+          minValue: -Infinity,
+        }
+        break
+      }
+      case 'shell': {
+        const { bodyId, ids } = action
+        manip = {
+          preview: null,
+          build: (v) => (v < 0.1 ? null : { kind: 'shell', bodyId, faceIds: ids, thickness: v }),
+          label: (v) => `壁厚 ${formatMm(v)}`,
+          param: { inFlight: false, pending: null, ghost: null },
+          blend: false,
           minValue: 0.1,
         }
         break
@@ -666,8 +705,17 @@ export class Viewport {
       this.bodies.get(m.spec.action.bodyId)?.group.position.copy(m.spec.dir).multiplyScalar(m.value)
     }
     if (m.param) this.requestParamPreview(m, m.value)
-    this.handles.setOffset(m.spec.id, m.spec.action.kind === 'param' ? 0 : m.value)
-    this.setDimension(m.label(m.value), this.manipAnchor(m), m.value, null)
+    this.handles.setOffset(m.spec.id, usesKernelPreview(m.spec.action) ? 0 : m.value)
+    const angle = useAppStore.getState().chamferAngleDeg
+    this.setDimension(
+      m.label(m.value),
+      this.manipAnchor(m),
+      m.value,
+      null,
+      m.blend && m.value < 0
+        ? { text: `∠ ${angle.toFixed(0)}°`, value: angle, unit: '°', apply: null }
+        : null,
+    )
   }
 
   private async commitManipulation(): Promise<void> {
@@ -685,17 +733,50 @@ export class Viewport {
       return
     }
     if (m.spec.action.kind === 'extrudeRegion') useAppStore.getState().clearSelection()
-    // 放開後尺寸仍可點：輸入精確值就以新參數取代這一步
-    this.setDimension(m.label(value), anchor, value, async (v) => {
-      const amended = m.build(m.minValue > 0 ? Math.max(m.minValue, v) : v)
-      if (amended && this.host) {
-        try {
-          await this.host.amend(amended)
-        } catch (e) {
-          useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
-        }
+    this.armDimension(m, value, anchor)
+  }
+
+  /**
+   * 放開後的可編輯尺寸：點它輸入精確值，以新參數取代剛才那一步；
+   * 每次修改完會重新掛上，所以能連續微調（圓角 ↔ 倒角、改角度…）。
+   */
+  private armDimension(m: Manipulation, value: number, anchor: Vector3): void {
+    const amendWith = async (next: JournalOp | null, nextValue: number) => {
+      if (!next || !this.host) return
+      try {
+        await this.host.amend(next)
+      } catch (e) {
+        useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
+        return
       }
-    })
+      this.armDimension(m, nextValue, anchor)
+    }
+    const angle = useAppStore.getState().chamferAngleDeg
+    const isChamfer = m.blend && value < 0
+    this.setDimension(
+      m.label(value),
+      anchor,
+      value,
+      (v) => {
+        const next = m.minValue > 0 ? Math.max(m.minValue, v) : v
+        return amendWith(m.build(next), next)
+      },
+      isChamfer
+        ? {
+            text: `∠ ${angle.toFixed(0)}°`,
+            value: angle,
+            unit: '°',
+            apply: (deg) => {
+              if (!(deg > 0 && deg < 90)) {
+                useAppStore.getState().showToast('倒角角度需介於 0° 與 90° 之間')
+                return Promise.resolve()
+              }
+              useAppStore.getState().setChamferAngle(deg)
+              return amendWith(m.build(value, deg), value)
+            },
+          }
+        : null,
+    )
   }
 
   private endManipulation(): void {
@@ -709,8 +790,7 @@ export class Viewport {
     if (m.param) {
       if (m.param.ghost) disposeBodyObject(m.param.ghost)
       m.param.pending = null
-      const action = m.spec.action
-      if (action.kind === 'param') this.syncVisibility()
+      if (usesKernelPreview(m.spec.action)) this.syncVisibility()
     }
     this.handles.setOffset(m.spec.id, 0)
     this.handles.setActive(null)
@@ -720,14 +800,14 @@ export class Viewport {
   private requestParamPreview(m: Manipulation, value: number): void {
     const kernel = this.host?.kernel()
     const param = m.param
-    if (!kernel || !param || m.spec.action.kind !== 'param') return
+    if (!kernel || !param || !usesKernelPreview(m.spec.action)) return
     if (param.inFlight) {
       param.pending = value
       return
     }
     const op = m.build(value)
     if (!op) return
-    const bodyId = m.spec.action.bodyId
+    const bodyId = (m.spec.action as { bodyId: number }).bodyId
     param.inFlight = true
     kernel
       .previewOp(op)
@@ -754,7 +834,7 @@ export class Viewport {
   }
 
   private manipAnchor(m: Manipulation): Vector3 {
-    const offset = m.spec.action.kind === 'param' ? 0 : m.value
+    const offset = usesKernelPreview(m.spec.action) ? 0 : m.value
     const tip = m.spec.origin.clone().addScaledVector(m.spec.dir, offset)
     return tip.addScaledVector(m.spec.dir, 80 * this.worldPerPixelAt(tip))
   }
@@ -784,23 +864,25 @@ export class Viewport {
       }))
     }
 
-    if (toolMode === 'fillet' || toolMode === 'chamfer') {
-      const edges = bodyItems.filter((i) => i.kind === 'edge')
+    // 選了邊就有雙向箭頭（不需模式）：往外拉＝圓角、往內推＝倒角
+    const edges = bodyItems.filter((i) => i.kind === 'edge')
+    if (edges.length > 0 && edges.length === selection.length) {
       const first = edges[0]
-      const mesh = first && this.meshes.get(first.bodyId)
-      const obj = first && this.bodies.get(first.bodyId)
+      const mesh = this.meshes.get(first.bodyId)
+      const obj = this.bodies.get(first.bodyId)
       const group = obj?.edgeGroups.find((g) => g.topoId === first.topoId)
-      if (!first || !mesh || !obj || !group) return []
+      if (!mesh || !obj || !group || edges.some((e) => e.bodyId !== first.bodyId)) return []
       const mid = new Vector3(...edgeMidpoint(mesh, group))
       const center = new Box3().setFromObject(obj.group).getCenter(new Vector3())
       const dir = mid.clone().sub(center).normalize()
       return [
         {
-          id: 'param',
+          id: 'blend',
           origin: mid,
           dir: dir.lengthSq() > 0 ? dir : new Vector3(0, 0, 1),
+          bidirectional: true,
           color: PARAM_HANDLE_COLOR,
-          action: { kind: 'param', mode: toolMode, bodyId: first.bodyId, ids: edges.map((e) => e.topoId) },
+          action: { kind: 'blend', bodyId: first.bodyId, ids: edges.map((e) => e.topoId) },
         },
       ]
     }
@@ -815,7 +897,7 @@ export class Viewport {
           origin: placed.origin,
           dir: placed.normal.clone().negate(),
           color: PARAM_HANDLE_COLOR,
-          action: { kind: 'param', mode: 'shell', bodyId: face.bodyId, ids: [face.topoId] },
+          action: { kind: 'shell', bodyId: face.bodyId, ids: [face.topoId] },
         },
       ]
     }
@@ -1023,8 +1105,14 @@ export class Viewport {
     anchor: Vector3,
     value: number,
     apply: ((value: number) => Promise<void>) | null,
+    secondary: {
+      text: string
+      value: number
+      unit: string
+      apply: ((v: number) => Promise<void>) | null
+    } | null = null,
   ): void {
-    this.dimension = { text, editable: apply !== null, value, anchor }
+    this.dimension = { text, editable: apply !== null, value, anchor, secondary }
     this.dimensionApply = apply
     this.lastDimensionPx = null
     this.invalidate()
@@ -1052,12 +1140,16 @@ export class Viewport {
       return
     }
     this.lastDimensionPx = px
+    const secondary = this.dimension.secondary
     useAppStore.getState().setDimension({
       text: this.dimension.text,
       editable: this.dimension.editable,
       value: this.dimension.value,
       x: px.x,
       y: px.y,
+      secondary: secondary
+        ? { text: secondary.text, value: secondary.value, unit: secondary.unit, editable: secondary.apply !== null }
+        : undefined,
     })
   }
 
@@ -1178,6 +1270,11 @@ export class Viewport {
     ])
     this.scene.add(new Line(geometry, new LineBasicMaterial({ color, toneMapped: false })))
   }
+}
+
+/** 圓角/倒角/抽殼的預覽要問 kernel（其餘用純 JS 幽靈）。 */
+function usesKernelPreview(action: HandleSpec['action']): boolean {
+  return action.kind === 'blend' || action.kind === 'shell'
 }
 
 function formatSigned(value: number): string {

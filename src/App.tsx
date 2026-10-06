@@ -48,7 +48,7 @@ export function App() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const store = useAppStore.getState()
-      if (store.keypadOpen) return
+      if (store.keypad) return
       const mod = e.metaKey || e.ctrlKey
       const key = e.key.toLowerCase()
       if (mod && key === 'z') {

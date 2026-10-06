@@ -78,8 +78,14 @@ export type JournalOp =
       bodyId: number
       /** 該 body 當下的 edge 拓撲索引（journal 位置決定其有效性）。 */
       edgeIds: number[]
+      /** 圓角半徑 / 倒角距離（mm，恆為正）。圓角與倒角由 chamfer 旗標區分。 */
       radius: number
       chamfer: boolean
+      /**
+       * 倒角角度（度）：斜面與「參考面」（相鄰兩面中面積較大者）的夾角，
+       * 距離沿參考面量測。未指定 = 45°（兩側等距）。Shapr3D 沒有此參數，是 HephCAD 的擴充。
+       */
+      angleDeg?: number
     }
   | { kind: 'shell'; bodyId: number; faceIds: number[]; thickness: number }
 
@@ -115,9 +121,10 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
     case 'copyBody':
       return `複製 ${nameOf(op.sourceBodyId)}`
     case 'fillet':
-      return op.chamfer
-        ? `倒角 ${op.radius.toFixed(1)}mm`
-        : `圓角 ${op.radius.toFixed(1)}mm`
+      if (!op.chamfer) return `圓角 ${op.radius.toFixed(1)}mm`
+      return op.angleDeg !== undefined && Math.abs(op.angleDeg - 45) > 1e-6
+        ? `倒角 ${op.radius.toFixed(1)}mm ∠${op.angleDeg.toFixed(0)}°`
+        : `倒角 ${op.radius.toFixed(1)}mm`
     case 'shell':
       return `抽殼 ${op.thickness.toFixed(1)}mm`
     case 'sketch': {

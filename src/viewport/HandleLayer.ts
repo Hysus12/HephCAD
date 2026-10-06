@@ -20,20 +20,25 @@ export type HandleAction =
   | { kind: 'extrudeRegion'; sketchId: number; regionIndex: number }
   | { kind: 'pushPull'; bodyId: number; faceId: number }
   | { kind: 'moveAxis'; bodyId: number }
-  | { kind: 'param'; mode: 'fillet' | 'chamfer' | 'shell'; bodyId: number; ids: number[] }
+  /** 圓角/倒角合一：往外拖＝圓角，往內拖＝倒角。 */
+  | { kind: 'blend'; bodyId: number; ids: number[] }
+  | { kind: 'shell'; bodyId: number; ids: number[] }
 
 export interface HandleSpec {
   id: string
   origin: Vector3
   /** 單位向量；拖曳沿此軸（反向拖 = 負值）。 */
   dir: Vector3
+  /** 雙向箭頭：兩端都有箭頭（圓角/倒角），原點在中央。 */
+  bidirectional?: boolean
   color: number
   action: HandleAction
 }
 
 interface HandleObject {
   spec: HandleSpec
-  root: Group
+  /** 沿 +dir 的箭頭；雙向時另有沿 -dir 的第二支。 */
+  roots: Group[]
   material: MeshBasicMaterial
 }
 
@@ -64,18 +69,22 @@ export class HandleLayer {
         transparent: true,
         opacity: 0.95,
       })
-      const root = new Group()
-      // 單位長度沿 +Y：底部小球 + 桿 + 錐頭
-      const base = new Mesh(new SphereGeometry(0.07, 12, 8), material)
-      const shaft = new Mesh(new CylinderGeometry(0.035, 0.035, 0.72, 10), material)
-      shaft.position.y = 0.36
-      const head = new Mesh(new ConeGeometry(0.11, 0.28, 16), material)
-      head.position.y = 0.86
-      for (const m of [base, shaft, head]) m.renderOrder = 40
-      root.add(base, shaft, head)
-      root.quaternion.copy(new Quaternion().setFromUnitVectors(UP, spec.dir))
-      this.group.add(root)
-      this.handles.push({ spec, root, material })
+      const directions = spec.bidirectional ? [spec.dir, spec.dir.clone().negate()] : [spec.dir]
+      const roots = directions.map((dir) => {
+        const root = new Group()
+        // 單位長度沿 +Y：底部小球 + 桿 + 錐頭
+        const base = new Mesh(new SphereGeometry(0.07, 12, 8), material)
+        const shaft = new Mesh(new CylinderGeometry(0.035, 0.035, 0.72, 10), material)
+        shaft.position.y = 0.36
+        const head = new Mesh(new ConeGeometry(0.11, 0.28, 16), material)
+        head.position.y = 0.86
+        for (const m of [base, shaft, head]) m.renderOrder = 40
+        root.add(base, shaft, head)
+        root.quaternion.copy(new Quaternion().setFromUnitVectors(UP, dir))
+        this.group.add(root)
+        return root
+      })
+      this.handles.push({ spec, roots, material })
     }
     this.offsets.clear()
   }
@@ -96,8 +105,10 @@ export class HandleLayer {
   update(worldPerPixelAt: (p: Vector3) => number): void {
     for (const h of this.handles) {
       const offset = this.offsets.get(h.spec.id) ?? 0
-      h.root.position.copy(h.spec.origin).addScaledVector(h.spec.dir, offset)
-      h.root.scale.setScalar(HANDLE_LENGTH_PX * worldPerPixelAt(h.root.position))
+      for (const root of h.roots) {
+        root.position.copy(h.spec.origin).addScaledVector(h.spec.dir, offset)
+        root.scale.setScalar(HANDLE_LENGTH_PX * worldPerPixelAt(root.position))
+      }
     }
   }
 
@@ -107,20 +118,26 @@ export class HandleLayer {
     for (const h of this.handles) {
       const offset = this.offsets.get(h.spec.id) ?? 0
       const base = h.spec.origin.clone().addScaledVector(h.spec.dir, offset)
-      const tip = base.clone().addScaledVector(h.spec.dir, HANDLE_LENGTH_PX * worldPerPixelAt(base))
-      const d = distanceToSegment(local, project(base), project(tip))
-      if (d <= HIT_TOLERANCE_PX && (!best || d < best.d)) best = { spec: h.spec, d }
+      const reach = HANDLE_LENGTH_PX * worldPerPixelAt(base)
+      const tips = [base.clone().addScaledVector(h.spec.dir, reach)]
+      if (h.spec.bidirectional) tips.push(base.clone().addScaledVector(h.spec.dir, -reach))
+      for (const tip of tips) {
+        const d = distanceToSegment(local, project(base), project(tip))
+        if (d <= HIT_TOLERANCE_PX && (!best || d < best.d)) best = { spec: h.spec, d }
+      }
     }
     return best?.spec ?? null
   }
 
   clear(): void {
     for (const h of this.handles) {
-      h.root.traverse((o) => {
-        if (o instanceof Mesh) o.geometry.dispose()
-      })
+      for (const root of h.roots) {
+        root.traverse((o) => {
+          if (o instanceof Mesh) o.geometry.dispose()
+        })
+        root.removeFromParent()
+      }
       h.material.dispose()
-      h.root.removeFromParent()
     }
     this.handles = []
   }

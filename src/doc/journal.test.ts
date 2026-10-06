@@ -21,6 +21,13 @@ describe('opLabel', () => {
       opLabel({ kind: 'fillet', bodyId: 1, edgeIds: [3], radius: 1, chamfer: true }, nameOf),
     ).toBe('倒角 1.0mm')
     expect(
+      opLabel({ kind: 'fillet', bodyId: 1, edgeIds: [3], radius: 5, chamfer: true, angleDeg: 30 }, nameOf),
+    ).toBe('倒角 5.0mm ∠30°')
+    // 45° 就是預設的等距倒角，不另外標示
+    expect(
+      opLabel({ kind: 'fillet', bodyId: 1, edgeIds: [3], radius: 5, chamfer: true, angleDeg: 45 }, nameOf),
+    ).toBe('倒角 5.0mm')
+    expect(
       opLabel({ kind: 'shell', bodyId: 1, faceIds: [2], thickness: 3 }, nameOf),
     ).toBe('抽殼 3.0mm')
   })

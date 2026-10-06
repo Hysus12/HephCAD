@@ -53,6 +53,8 @@ export interface DimensionLabel {
   y: number
   editable: boolean
   value: number
+  /** 第二個可點的參數（倒角角度）。 */
+  secondary?: { text: string; value: number; unit: string; editable: boolean }
 }
 
 /**
@@ -90,8 +92,8 @@ export interface AppState {
   replaceSelection: (items: SelectionItem[]) => void
   clearSelection: () => void
 
-  /** 情境操作模式（依選取出現：移動/圓角/倒角/抽殼）。選取變更即重置。 */
-  toolMode: 'move' | 'fillet' | 'chamfer' | 'shell' | null
+  /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
+  toolMode: 'move' | 'shell' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
   activeTool: ActiveTool
@@ -105,8 +107,13 @@ export interface AppState {
 
   dimension: DimensionLabel | null
   setDimension: (label: DimensionLabel | null) => void
-  keypadOpen: boolean
-  setKeypadOpen: (open: boolean) => void
+  /** 數字鍵盤正在編輯哪個欄位（null = 關閉）。 */
+  keypad: 'primary' | 'secondary' | null
+  setKeypad: (target: 'primary' | 'secondary' | null) => void
+
+  /** 拖曳倒角時使用的角度（度）；預設 45＝兩側等距。 */
+  chamferAngleDeg: number
+  setChamferAngle: (deg: number) => void
 
   toast: { text: string; id: number } | null
   showToast: (text: string) => void
@@ -207,8 +214,11 @@ export const useAppStore = create<AppState>()((set) => ({
 
   dimension: null,
   setDimension: (label) => set({ dimension: label }),
-  keypadOpen: false,
-  setKeypadOpen: (open) => set({ keypadOpen: open }),
+  keypad: null,
+  setKeypad: (target) => set({ keypad: target }),
+
+  chamferAngleDeg: 45,
+  setChamferAngle: (deg) => set({ chamferAngleDeg: deg }),
 
   toast: null,
   showToast: (text) => set({ toast: { text, id: ++toastSeq } }),

@@ -9,6 +9,8 @@ import type {
   TopoDS_Face,
   TopoDS_Shape,
   TopAbs_ShapeEnum,
+  TopoDS_Edge,
+  TopTools_IndexedDataMapOfShapeListOfShape,
   STEPControl_StepModelType,
 } from 'opencascade.js/dist/opencascade.full.js'
 import type { JournalOp, Translation } from '../doc/journal.ts'
@@ -111,6 +113,41 @@ function prismFromCurves(
   return prism
 }
 
+type ChamferAdd3 = {
+  Add_3(d1: number, d2: number, edge: TopoDS_Edge, face: TopoDS_Face): void
+}
+
+/** 邊相鄰的面中面積較大者（倒角角度的參考面，讓「角度」落在直覺的那一側）。 */
+function largestAdjacentFace(
+  oc: OpenCascadeInstance,
+  ancestors: TopTools_IndexedDataMapOfShapeListOfShape,
+  edge: TopoDS_Edge,
+): TopoDS_Face | null {
+  const index = ancestors.FindIndex(edge)
+  if (index === 0) return null
+  const faces = ancestors.FindFromIndex(index)
+  if (faces.Size() === 0) return null
+  // 一條邊最多兩個鄰面（縫線邊同一面出現兩次），首尾即全部
+  const candidates = [faces.First_1(), faces.Last_1()]
+  let best: TopoDS_Face | null = null
+  let bestArea = -1
+  for (const shape of candidates) {
+    const face = oc.TopoDS.Face_1(shape)
+    const props = new oc.GProp_GProps_1()
+    oc.BRepGProp.SurfaceProperties_1(face, props, false, false)
+    const area = props.Mass()
+    props.delete()
+    if (area > bestArea) {
+      best?.delete()
+      best = face
+      bestArea = area
+    } else {
+      face.delete()
+    }
+  }
+  return best
+}
+
 /** 用 old 產生修改後的新 shape（不刪除 old、不動 registry）。 */
 function buildModifiedShape(
   oc: OpenCascadeInstance,
@@ -143,14 +180,42 @@ function buildModifiedShape(
         oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum,
         edgeMap,
       )
+      // 非 45° 的倒角需要「參考面」：距離沿它量，另一側距離 = 距離 · tan(角度)
+      const angled =
+        jop.chamfer && jop.angleDeg !== undefined && Math.abs(jop.angleDeg - 45) > 1e-6
+      if (angled && !(jop.angleDeg! > 0 && jop.angleDeg! < 90)) {
+        maker.delete()
+        throw new Error('倒角角度需介於 0° 與 90° 之間')
+      }
+      const ancestors = angled ? new oc.TopTools_IndexedDataMapOfShapeListOfShape_1() : null
+      if (ancestors) {
+        oc.TopExp.MapShapesAndAncestors(
+          old,
+          oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum,
+          oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum,
+          ancestors,
+        )
+      }
       let added = 0
       for (const edgeId of jop.edgeIds) {
         if (edgeId < 1 || edgeId > edgeMap.Extent()) continue
         const edge = oc.TopoDS.Edge_1(edgeMap.FindKey(edgeId))
-        maker.Add_2(jop.radius, edge)
+        if (angled && ancestors) {
+          const refFace = largestAdjacentFace(oc, ancestors, edge)
+          if (!refFace) {
+            edge.delete()
+            continue
+          }
+          const d2 = jop.radius * Math.tan((jop.angleDeg! * Math.PI) / 180)
+          ;(maker as unknown as ChamferAdd3).Add_3(jop.radius, d2, edge, refFace)
+          refFace.delete()
+        } else {
+          maker.Add_2(jop.radius, edge)
+        }
         edge.delete()
         added++
       }
+      ancestors?.delete()
       edgeMap.delete()
       if (added === 0) {
         maker.delete()

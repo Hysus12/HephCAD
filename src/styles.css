@@ -536,9 +536,15 @@ body {
 
 /* ---- 尺寸標籤與數字鍵盤 ---- */
 
-.dimension-label {
+.dimension-group {
   position: absolute;
   transform: translate(-50%, -50%);
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.dimension-label {
   padding: 4px 10px;
   border: 1px solid transparent;
   border-radius: 8px;

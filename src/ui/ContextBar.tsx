@@ -76,7 +76,7 @@ export function ContextBar() {
     }
     canLookAt = true
   } else if (only('edge') && sameBody) {
-    modes.push({ mode: 'fillet', label: '圓角' }, { mode: 'chamfer', label: '倒角' })
+    hint = '拖曳橘色箭頭：往外拉＝圓角、往內推＝倒角（可點數字輸入，負數＝倒角）'
   } else if (only('body')) {
     if (selection.length === 1) {
       modes.push({ mode: 'move', label: '移動' })
@@ -86,7 +86,6 @@ export function ContextBar() {
   }
 
   if (toolMode === 'move') hint = '拖曳彩色箭頭沿 X / Y / Z 移動'
-  else if (toolMode === 'fillet' || toolMode === 'chamfer') hint = '拖曳橘色箭頭設定大小'
   else if (toolMode === 'shell') hint = '拖曳橘色箭頭設定壁厚'
 
   return (
