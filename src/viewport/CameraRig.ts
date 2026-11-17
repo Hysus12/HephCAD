@@ -97,6 +97,12 @@ export class CameraRig {
     this.phi = clamp(phi, MIN_PHI, MAX_PHI)
   }
 
+  /** 動畫移到「以 center 為中心、距離 radius」的構圖（縮放到全景用）。 */
+  frame(center: Vector3, radius: number): void {
+    this.target.copy(center)
+    this.radius = clamp(radius, MIN_RADIUS, MAX_RADIUS)
+  }
+
   currentRadius(): number {
     return this.curRadius
   }

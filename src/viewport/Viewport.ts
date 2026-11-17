@@ -17,6 +17,7 @@ import {
   Group,
   Raycaster,
   Scene,
+  Sphere,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -27,6 +28,7 @@ import type { KernelClient } from '../kernel/KernelClient.ts'
 import type { BodyMeshResult, MeshData } from '../kernel/protocol.ts'
 import { describeCurves, formatMm } from '../sketch/dimensions.ts'
 import {
+  discretizeCurve,
   GROUND_PLANE,
   worldToUv,
   type SketchCurve,
@@ -518,6 +520,28 @@ export class Viewport {
   }
 
   /** 把相機轉成正對目前選取的平面（草圖、面），網格軸對齊螢幕。 */
+  /** 縮放到全景：把所有看得見的本體與草圖框進畫面（沒有東西時回到原點）。 */
+  zoomToFit(): void {
+    const box = new Box3()
+    for (const body of this.visibleBodies()) box.expandByObject(body.group)
+    for (const layer of this.sketchLayers.values()) {
+      if (!layer.visible) continue
+      for (const curve of layer.entity.curves) {
+        for (const uv of discretizeCurve(curve, 16)) box.expandByPoint(new Vector3(...planeAnchor(layer.entity.plane, uv)))
+      }
+    }
+    if (box.isEmpty()) {
+      this.rig.frame(new Vector3(), 600)
+    } else {
+      const sphere = box.getBoundingSphere(new Sphere())
+      const half = ((FOV_DEG / 2) * Math.PI) / 180
+      // 直向畫面時水平視角較窄，以較小的那個視角為準
+      const limit = Math.min(half, Math.atan(Math.tan(half) * (this.width / this.height)))
+      this.rig.frame(sphere.center, (Math.max(sphere.radius, 5) / Math.sin(limit)) * 1.15)
+    }
+    this.invalidate()
+  }
+
   lookAtSelection(): void {
     const plane = this.selectionPlane()
     if (!plane) return
@@ -2051,10 +2075,14 @@ export class Viewport {
     this.addAxisLine(new Vector3(0, 1, 0), 0x3d9c50)
     this.addAxisLine(new Vector3(0, 0, 1), 0x3d5d9c)
 
-    this.scene.add(new HemisphereLight(0xdedee4, 0x3a3a40, 1.2))
-    const key = new DirectionalLight(0xffffff, 1.6)
+    // 亮面淺灰＋暗面仍看得出形狀（Shapr3D 的淺色實體配深色輪廓）
+    this.scene.add(new HemisphereLight(0xf2f2f6, 0x55555c, 1.5))
+    const key = new DirectionalLight(0xffffff, 1.5)
     key.position.set(400, -300, 600)
     this.scene.add(key)
+    const fill = new DirectionalLight(0xffffff, 0.5)
+    fill.position.set(-500, 400, 200)
+    this.scene.add(fill)
   }
 
   private addAxisLine(dir: Vector3, color: number): void {

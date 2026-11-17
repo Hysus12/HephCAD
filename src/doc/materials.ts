@@ -8,7 +8,7 @@ export interface BodyMaterial {
   opacity: number
 }
 
-export const DEFAULT_MATERIAL: BodyMaterial = { color: '#9a9aa0', opacity: 1 }
+export const DEFAULT_MATERIAL: BodyMaterial = { color: '#c4c4ca', opacity: 1 }
 export const MIN_OPACITY = 0.05
 
 export function clampOpacity(value: number): number {

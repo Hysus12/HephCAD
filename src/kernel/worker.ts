@@ -648,7 +648,14 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
     }
     case 'revolve': {
       if (Math.abs(jop.angleDeg) < 0.1) throw new Error('旋轉角度過小')
-      const solid = revolveFromCurves(oc, jop)
+      let solid: TopoDS_Shape
+      try {
+        solid = revolveFromCurves(oc, jop)
+      } catch (e) {
+        // OCCT 對自交的旋轉體會丟 C++ 例外（數字）——換成看得懂的訊息
+        if (e instanceof Error) throw e
+        throw new Error('無法旋轉成形：旋轉軸不能穿過輪廓內部', { cause: e })
+      }
       const hostId = jop.hostBodyId !== null && bodies.has(jop.hostBodyId) ? jop.hostBodyId : null
       return commitSolid(oc, jop, solid, hostId, hostId !== null ? 'union' : 'new')
     }
