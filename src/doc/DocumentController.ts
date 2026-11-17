@@ -227,7 +227,9 @@ export class DocumentController {
     for (const body of applied.updated) {
       this.upsertBody(body)
     }
-    if (applied.op.kind === 'sketch' || applied.op.kind === 'extrude') this.syncSketches()
+    if (applied.op.kind === 'sketch' || applied.op.kind === 'extrude' || applied.op.kind === 'revolve') {
+      this.syncSketches()
+    }
     this.syncFolders()
     this.syncMaterials()
     this.syncPlanes()

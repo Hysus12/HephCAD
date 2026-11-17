@@ -77,11 +77,19 @@ export function ContextBar() {
   let canCopy = false
   let canBoolean = false
   let canChain = false
+  let canRevolve = false
   let canFaceEdges = false
 
   if (only('region')) {
-    hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）' : null
+    hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）；再點一條直線當軸＝旋轉成形' : null
     canLookAt = true
+  } else if (
+    selection.length === 2 &&
+    selection.some((i) => i.kind === 'region') &&
+    selection.some((i) => i.kind === 'curve')
+  ) {
+    canRevolve = true
+    hint = '拖曳圓環旋轉成形（5° 一格）；點數字可輸入角度'
   } else if (only('curve')) {
     canDelete = true
     canLookAt = true
@@ -264,6 +272,15 @@ export function ContextBar() {
           }
         >
           投影
+        </button>
+      )}
+      {canRevolve && (
+        <button
+          className="context-button"
+          title="繞選取的直線旋轉一整圈"
+          onClick={() => void services.viewport?.revolveFull()}
+        >
+          整圈 360°
         </button>
       )}
       {canChain && (

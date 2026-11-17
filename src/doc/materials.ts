@@ -34,7 +34,7 @@ export function deriveMaterials(
           opacity: op.opacity === undefined ? current.opacity : clampOpacity(op.opacity),
         })
       }
-    } else if (op.kind === 'copyBody') {
+    } else if (op.kind === 'copyBody' || op.kind === 'mirror') {
       inherit(op.sourceBodyId, op.bodyId)
     } else if (op.kind === 'pattern') {
       for (const id of op.resultBodyIds) inherit(op.sourceBodyId, id)

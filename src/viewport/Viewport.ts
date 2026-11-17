@@ -58,6 +58,7 @@ import { dragHeight, type Px } from './extrudeMath.ts'
 import { DEFAULT_MATERIAL, type BodyMaterial } from '../doc/materials.ts'
 import type { PlaneEntity } from '../doc/planes.ts'
 import { PlaneLayer } from './PlaneLayer.ts'
+import { RevolvePreview } from './RevolvePreview.ts'
 import { GestureController, type PrimaryRole } from './gestures.ts'
 import { HandleLayer, type HandleSpec } from './HandleLayer.ts'
 import { angleAboutAxis, screenAngleDelta } from './rotateMath.ts'
@@ -120,7 +121,7 @@ interface Manipulation {
   /** 軸向每 1 世界單位在螢幕上的位移。 */
   axisPx: Px
   value: number
-  preview: ExtrudePreview | null
+  preview: { setHeight(value: number): void; dispose(): void } | null
   /** angle 只有圓角/倒角用（倒角角度，度）。 */
   build: (value: number, angle?: number) => JournalOp | null
   label: (value: number) => string
@@ -891,6 +892,48 @@ export class Viewport {
         }
         break
       }
+      case 'revolve': {
+        const layer = this.sketchLayers.get(action.sketchId)
+        const region = layer?.region(action.regionIndex)
+        if (!layer || !region) return false
+        const { plane, curves, hostBodyId } = layer.entity
+        const center = spec.origin.clone()
+        const axis = spec.dir.clone()
+        const axisOrigin: Vec3Tuple = [center.x, center.y, center.z]
+        const axisDir: Vec3Tuple = [axis.x, axis.y, axis.z]
+        const ref: { mode?: BoolMode } = {}
+        manip = {
+          preview: new RevolvePreview(this.scene, region.mesh, axisOrigin, axisDir),
+          build: (deg) =>
+            Math.abs(deg) < 1
+              ? null
+              : {
+                  kind: 'revolve',
+                  plane,
+                  curves,
+                  regionIndex: region.regionIndex,
+                  axisOrigin,
+                  axisDir,
+                  angleDeg: Math.max(-360, Math.min(360, deg)),
+                  hostBodyId,
+                  newBodyId: null,
+                  name: null,
+                  sketchId: action.sketchId,
+                  regionKey: region.key,
+                  ...(ref.mode ? { boolMode: ref.mode } : {}),
+                },
+          boolRef: ref,
+          autoBool: () => (hostBodyId !== null ? 'union' : 'new'),
+          label: (deg) => (Math.abs(deg) >= 360 ? '旋轉成形 整圈' : `旋轉成形 ${deg.toFixed(0)}°`),
+          valueFn: this.ringAngleFn(local, center, axis, 360),
+          steps: [5, 1],
+          unit: '°',
+          param: null,
+          blend: false,
+          minValue: -360,
+        }
+        break
+      }
       case 'pushPull': {
         const mesh = this.meshes.get(action.bodyId)
         const body = this.bodies.get(action.bodyId)
@@ -964,13 +1007,6 @@ export class Viewport {
       case 'rotateAxis': {
         const center = spec.origin.clone()
         const axis = spec.dir.clone()
-        const startPoint = this.planePoint(local, center, axis)
-        const centerPx = this.worldToLocalPx(center)
-        // 環幾乎側對相機時射線打不到環平面：改用螢幕角度，方向依軸朝向相機與否決定
-        const toCamera = this.camera.position.clone().sub(center).normalize()
-        const screenSign = axis.dot(toCamera) > 0 ? 1 : -1
-        let previous = 0
-        let accumulated = 0
         manip = {
           preview: null,
           build: (deg) =>
@@ -982,25 +1018,7 @@ export class Viewport {
                   angleDeg: deg,
                 }),
           label: (deg) => `旋轉 ${deg.toFixed(1)}°`,
-          // 連續累加（越過 ±180° 不會跳回），所以可以一路轉超過半圈
-          valueFn: (p) => {
-            const current = this.planePoint(p, center, axis)
-            const raw =
-              startPoint && current
-                ? angleAboutAxis(
-                    [center.x, center.y, center.z],
-                    [axis.x, axis.y, axis.z],
-                    [startPoint.x, startPoint.y, startPoint.z],
-                    [current.x, current.y, current.z],
-                  )
-                : screenAngleDelta(centerPx, local, p) * screenSign
-            let delta = raw - previous
-            if (delta > 180) delta -= 360
-            if (delta < -180) delta += 360
-            accumulated += delta
-            previous = raw
-            return accumulated
-          },
+          valueFn: this.ringAngleFn(local, center, axis, Infinity),
           steps: [5, 1],
           unit: '°',
           param: null,
@@ -1029,35 +1047,12 @@ export class Viewport {
       case 'patternCircular': {
         const center = spec.origin.clone()
         const axis = spec.dir.clone()
-        const startPoint = this.planePoint(local, center, axis)
-        const centerPx = this.worldToLocalPx(center)
-        const toCamera = this.camera.position.clone().sub(center).normalize()
-        const screenSign = axis.dot(toCamera) > 0 ? 1 : -1
-        let previous = 0
-        let accumulated = 0
         manip = {
           preview: null,
           build: (deg) => this.patternOp(action.bodyId, 'circular', deg, axis, center),
           label: (deg) =>
             `${Math.abs(deg) >= 360 ? '整圈' : `總角度 ${deg.toFixed(0)}°`} ×${useAppStore.getState().patternCount}`,
-          valueFn: (p) => {
-            const current = this.planePoint(p, center, axis)
-            const raw =
-              startPoint && current
-                ? angleAboutAxis(
-                    [center.x, center.y, center.z],
-                    [axis.x, axis.y, axis.z],
-                    [startPoint.x, startPoint.y, startPoint.z],
-                    [current.x, current.y, current.z],
-                  )
-                : screenAngleDelta(centerPx, local, p) * screenSign
-            let delta = raw - previous
-            if (delta > 180) delta -= 360
-            if (delta < -180) delta += 360
-            accumulated += delta
-            previous = raw
-            return Math.max(-360, Math.min(360, accumulated))
-          },
+          valueFn: this.ringAngleFn(local, center, axis, 360),
           steps: [15, 1],
           unit: '°',
           param: null,
@@ -1161,7 +1156,8 @@ export class Viewport {
       useAppStore.getState().showToast(`操作失敗：${e instanceof Error ? e.message : String(e)}`)
       return
     }
-    if (m.spec.action.kind === 'extrudeRegion') useAppStore.getState().clearSelection()
+    const consumed = m.spec.action.kind === 'extrudeRegion' || m.spec.action.kind === 'revolve'
+    if (consumed) useAppStore.getState().clearSelection()
     this.armDimension(m, value, anchor)
   }
 
@@ -1290,6 +1286,38 @@ export class Viewport {
   }
 
   /** 射線與「過 center、法線 axis」的平面交點；幾乎平行時回傳 null。 */
+  /**
+   * 拖曳旋轉環時「指標繞軸轉了幾度」的換算。連續累加（越過 ±180° 不會跳回），
+   * 所以能一路轉超過半圈；limit 夾住總角度（旋轉成形/圓形陣列最多一圈）。
+   */
+  private ringAngleFn(local: Px, center: Vector3, axis: Vector3, limit: number): (p: Px) => number {
+    const startPoint = this.planePoint(local, center, axis)
+    const centerPx = this.worldToLocalPx(center)
+    // 環幾乎側對相機時射線打不到環平面：改用螢幕角度，方向依軸朝向相機與否決定
+    const toCamera = this.camera.position.clone().sub(center).normalize()
+    const screenSign = axis.dot(toCamera) > 0 ? 1 : -1
+    let previous = 0
+    let accumulated = 0
+    return (p) => {
+      const current = this.planePoint(p, center, axis)
+      const raw =
+        startPoint && current
+          ? angleAboutAxis(
+              [center.x, center.y, center.z],
+              [axis.x, axis.y, axis.z],
+              [startPoint.x, startPoint.y, startPoint.z],
+              [current.x, current.y, current.z],
+            )
+          : screenAngleDelta(centerPx, local, p) * screenSign
+      let delta = raw - previous
+      if (delta > 180) delta -= 360
+      if (delta < -180) delta += 360
+      accumulated += delta
+      previous = raw
+      return Math.max(-limit, Math.min(limit, accumulated))
+    }
+  }
+
   private planePoint(local: Px, center: Vector3, axis: Vector3): Vector3 | null {
     this.setRay(local)
     if (Math.abs(this.raycaster.ray.direction.dot(axis)) < 0.1) return null
@@ -1547,6 +1575,20 @@ export class Viewport {
       ]
     }
 
+    const revolve = this.revolveSetup()
+    if (revolve) {
+      return [
+        {
+          id: 'revolve',
+          origin: revolve.origin,
+          dir: revolve.dir,
+          ring: true,
+          color: HANDLE_COLOR,
+          action: { kind: 'revolve', sketchId: revolve.sketchId, regionIndex: revolve.regionIndex },
+        },
+      ]
+    }
+
     if (selection.length !== 1) return []
     const item = selection[0]
     if (item.kind === 'region') {
@@ -1577,6 +1619,45 @@ export class Viewport {
       ]
     }
     return []
+  }
+
+  /**
+   * 旋轉成形的條件：選取恰好是「一個區域＋一條直線」，且直線落在區域的平面上。
+   * 回傳旋轉軸（origin＝區域形心在軸上的投影，環就畫在那裡）。
+   */
+  private revolveSetup(): { sketchId: number; regionIndex: number; origin: Vector3; dir: Vector3 } | null {
+    const { selection } = useAppStore.getState()
+    if (selection.length !== 2) return null
+    const regionItem = selection.find((i) => i.kind === 'region')
+    const lineItem = selection.find((i) => i.kind === 'curve')
+    if (!regionItem || !lineItem || regionItem.kind !== 'region' || lineItem.kind !== 'curve') return null
+    const regionLayer = this.sketchLayers.get(regionItem.sketchId)
+    const region = regionLayer?.visible ? regionLayer.region(regionItem.regionIndex) : undefined
+    const lineSketch = this.sketchLayers.get(lineItem.sketchId)?.entity
+    const line = lineSketch?.curves.find((c) => c.id === lineItem.curveId)
+    if (!regionLayer || !region || !lineSketch || !line || line.kind !== 'line') return null
+    const a = new Vector3(...planeAnchor(lineSketch.plane, line.a))
+    const b = new Vector3(...planeAnchor(lineSketch.plane, line.b))
+    const dir = b.clone().sub(a)
+    if (dir.lengthSq() < 1e-9) return null
+    dir.normalize()
+    // 軸必須在輪廓的平面內，否則掃出來的不是旋轉體
+    const plane = regionLayer.entity.plane
+    const normal = new Vector3(...plane.normal)
+    const planeOrigin = new Vector3(...plane.origin)
+    if (Math.abs(dir.dot(normal)) > 1e-4 || Math.abs(a.clone().sub(planeOrigin).dot(normal)) > 1e-3) return null
+    const origin = a.clone().addScaledVector(dir, region.centroid.clone().sub(a).dot(dir))
+    return { sketchId: regionItem.sketchId, regionIndex: regionItem.regionIndex, origin, dir }
+  }
+
+  /** 情境列的「整圈」：不用拖環，直接旋轉成形 360°。 */
+  async revolveFull(): Promise<void> {
+    const setup = this.revolveSetup()
+    const spec = setup && this.handles.specs().find((h) => h.id === 'revolve')
+    if (!setup || !spec) return
+    if (!this.beginManipulation(spec, this.worldToLocalPx(spec.origin))) return
+    if (this.manip) this.manip.value = 360
+    await this.commitManipulation()
   }
 
   private facePlacement(
