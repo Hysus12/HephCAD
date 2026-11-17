@@ -150,6 +150,35 @@ export type JournalOp =
     }
   | { kind: 'plane'; action: 'delete'; planeId: number }
   | {
+      /**
+       * 旋轉成形（Shapr3D 的 Revolve）：草圖區域繞一條軸（世界座標）旋轉 angleDeg；
+       * |angleDeg| ≥ 360＝整圈。其餘欄位與 extrude 相同（自包含、可重放）。
+       */
+      kind: 'revolve'
+      plane: SketchPlane
+      curves: SketchCurve[]
+      regionIndex: number
+      axisOrigin: Translation
+      axisDir: Translation
+      angleDeg: number
+      hostBodyId: number | null
+      newBodyId: number | null
+      name: string | null
+      sketchId?: number
+      regionKey?: string
+      boolMode?: BoolMode
+      targetBodyIds?: number[]
+    }
+  | {
+      /** 鏡射複製：以平面（point + normal）為鏡面產生新本體，原本體保留。 */
+      kind: 'mirror'
+      sourceBodyId: number
+      bodyId: number
+      name: string
+      point: Translation
+      normal: Translation
+    }
+  | {
       /** 外觀（純文件層）：顏色 '#rrggbb' 與不透明度 0.05–1；沒給的欄位維持原樣。 */
       kind: 'material'
       bodyIds: number[]
@@ -208,6 +237,12 @@ export function opLabel(op: JournalOp, nameOf: (bodyId: number) => string): stri
       if (op.hostBodyId === null) return `擠出 ${mm}mm`
       return op.height >= 0 ? `擠出加料 ${op.height.toFixed(1)}mm` : `擠出切除 ${mm}mm`
     }
+    case 'revolve': {
+      const deg = Math.abs(op.angleDeg) >= 360 ? '360' : Math.abs(op.angleDeg).toFixed(0)
+      return op.boolMode ? `旋轉成形（${BOOL_LABELS[op.boolMode]}）${deg}°` : `旋轉成形 ${deg}°`
+    }
+    case 'mirror':
+      return `鏡射 ${nameOf(op.sourceBodyId)}`
     case 'importStep':
       return `匯入 "${op.name}"`
     case 'transform':
@@ -281,7 +316,11 @@ export function aliveBodyNames(ops: JournalOp[]): Map<number, string> {
       case 'deleteBody':
         names.delete(op.bodyId)
         break
+      case 'mirror':
+        names.set(op.bodyId, op.name)
+        break
       case 'extrude':
+      case 'revolve':
         if (op.newBodyId !== null && op.newBodyId > 0) {
           names.set(op.newBodyId, op.name ?? `主體 ${op.newBodyId}`)
         }

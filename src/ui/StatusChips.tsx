@@ -1,3 +1,4 @@
+import { services } from '../app/services.ts'
 import { useAppStore } from '../state/appStore.ts'
 
 /** 右上角狀態群：吸附開關與網格間距（對應 Shapr3D 的磁鐵 + 單位 chip）。 */
@@ -27,6 +28,17 @@ export function StatusChips() {
           <path d="M7 4 v7 a5 5 0 0 0 10 0 V4" />
           <path d="M7 4 h3.5 M13.5 4 H17" />
           <path d="M7 8 h3.5 M13.5 8 H17" strokeWidth="2.4" />
+        </svg>
+      </button>
+      <button
+        className="chip-button"
+        onClick={() => services.viewport?.zoomToFit()}
+        title="縮放到全景（F）"
+        aria-label="縮放到全景"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15" />
+          <rect x="9" y="9" width="6" height="6" rx="1" />
         </svg>
       </button>
       <div className="chip-label">

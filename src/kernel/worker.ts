@@ -500,6 +500,118 @@ function pushPullShape(
 
 // ---- journal 執行器 ----
 
+type SolidOp = Extract<JournalOp, { kind: 'extrude' | 'revolve' }>
+
+/**
+ * 擠出/旋轉成形共用的收尾：依布林模式把新實體變成新本體，或與既有本體聯集/減去/交集。
+ * solid 由這裡接管（成為本體或被刪除）。
+ */
+function commitSolid(
+  oc: OpenCascadeInstance,
+  jop: SolidOp,
+  solid: TopoDS_Shape,
+  hostId: number | null,
+  auto: BoolMode,
+): ApplyOpResult {
+  const mode: BoolMode = jop.boolMode ?? auto
+
+  if (mode === 'new') {
+    const bodyId = claimBodyId(jop.newBodyId ?? 0)
+    setBody(bodyId, solid)
+    return result(
+      { ...jop, newBodyId: bodyId, name: jop.name ?? `主體 ${bodyId}`, targetBodyIds: [] },
+      [bodyId],
+    )
+  }
+
+  // 目標：已記錄的（重放）→ 宿主 → 與新實體重疊的所有本體
+  const targets = (
+    jop.targetBodyIds ?? (hostId !== null ? [hostId] : overlappingBodyIds(oc, solid))
+  ).filter((id) => bodies.has(id))
+  if (targets.length === 0) {
+    solid.delete()
+    throw new Error('沒有重疊的本體可以做布林運算')
+  }
+  const recorded = { ...jop, targetBodyIds: targets, newBodyId: null as number | null }
+
+  try {
+    if (mode === 'union') {
+      // 全部併進第一個目標，其餘目標被移除
+      const rest = targets.slice(1).map((id) => bodies.get(id)!)
+      const merged = chainBoolean(oc, bodies.get(targets[0])!, [...rest, solid], 'union')
+      setBody(targets[0], merged)
+      const removed = targets.slice(1)
+      for (const id of removed) {
+        bodies.get(id)?.delete()
+        bodies.delete(id)
+      }
+      return { ...result(recorded, [targets[0]]), removed }
+    }
+    // subtract / intersect：逐一對每個目標套用（先全部算完再替換，失敗時不留半套）
+    const outputs: TopoDS_Shape[] = []
+    try {
+      for (const id of targets) {
+        outputs.push(
+          chainBoolean(oc, bodies.get(id)!, [solid], mode === 'subtract' ? 'subtract' : 'intersect'),
+        )
+      }
+    } catch (e) {
+      for (const out of outputs) out.delete()
+      throw e
+    }
+    targets.forEach((id, i) => setBody(id, outputs[i]))
+    return result(recorded, targets)
+  } finally {
+    solid.delete()
+  }
+}
+
+/** 草圖區域繞軸旋轉成實體。軸穿過區域內部時 OCCT 會產生自交的無效實體，這裡擋掉。 */
+function revolveFromCurves(
+  oc: OpenCascadeInstance,
+  jop: Extract<JournalOp, { kind: 'revolve' }>,
+): TopoDS_Shape {
+  const { faces } = buildSketchRegions(oc, jop.plane, jop.curves)
+  const face = faces[jop.regionIndex]
+  if (!face) {
+    for (const f of faces) f.delete()
+    throw new Error(`區域重建失敗（index ${jop.regionIndex}，共 ${faces.length} 個）`)
+  }
+  const point = new oc.gp_Pnt_3(...jop.axisOrigin)
+  const dir = new oc.gp_Dir_4(...jop.axisDir)
+  const axis = new oc.gp_Ax1_2(point, dir)
+  const full = Math.abs(jop.angleDeg) >= 360 - 1e-6
+  const maker = full
+    ? new oc.BRepPrimAPI_MakeRevol_2(face, axis, true)
+    : new oc.BRepPrimAPI_MakeRevol_1(face, axis, (jop.angleDeg * Math.PI) / 180, true)
+  let shape: TopoDS_Shape
+  try {
+    shape = maker.Shape()
+  } finally {
+    maker.delete()
+    axis.delete()
+    dir.delete()
+    point.delete()
+    for (const f of faces) f.delete()
+  }
+  // 負角度（或面的朝向）會讓實體內外相反：體積為負就翻面
+  let volume = volumeOf(oc, shape)
+  if (volume < 0) {
+    const flipped = shape.Reversed()
+    shape.delete()
+    shape = flipped
+    volume = -volume
+  }
+  const analyzer = new oc.BRepCheck_Analyzer(shape, true, false)
+  const valid = analyzer.IsValid_2()
+  analyzer.delete()
+  if (!valid || volume < 1e-6) {
+    shape.delete()
+    throw new Error('無法旋轉成形：旋轉軸不能穿過輪廓內部')
+  }
+  return shape
+}
+
 function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult {
   switch (jop.kind) {
     case 'createBox': {
@@ -531,58 +643,41 @@ function applyJournalOp(oc: OpenCascadeInstance, jop: JournalOp): ApplyOpResult 
       const prism = prismFromCurves(oc, jop.plane, jop.curves, jop.regionIndex, jop.height)
       const hostId = jop.hostBodyId !== null && bodies.has(jop.hostBodyId) ? jop.hostBodyId : null
       // 自動：有宿主時依方向聯集/減去，否則新本體（與 Shapr3D 的預設相同）
-      const mode: BoolMode =
-        jop.boolMode ?? (hostId !== null ? (jop.height >= 0 ? 'union' : 'subtract') : 'new')
-
-      if (mode === 'new') {
-        const bodyId = claimBodyId(jop.newBodyId ?? 0)
-        setBody(bodyId, prism)
-        return result(
-          { ...jop, newBodyId: bodyId, name: jop.name ?? `主體 ${bodyId}`, targetBodyIds: [] },
-          [bodyId],
-        )
-      }
-
-      // 目標：已記錄的（重放）→ 宿主 → 與擠出體重疊的所有本體
-      const targets = (
-        jop.targetBodyIds ?? (hostId !== null ? [hostId] : overlappingBodyIds(oc, prism))
-      ).filter((id) => bodies.has(id))
-      if (targets.length === 0) {
-        prism.delete()
-        throw new Error('沒有重疊的本體可以做布林運算')
-      }
-      const recorded = { ...jop, targetBodyIds: targets, newBodyId: null as number | null }
-
+      const auto: BoolMode = hostId !== null ? (jop.height >= 0 ? 'union' : 'subtract') : 'new'
+      return commitSolid(oc, jop, prism, hostId, auto)
+    }
+    case 'revolve': {
+      if (Math.abs(jop.angleDeg) < 0.1) throw new Error('旋轉角度過小')
+      let solid: TopoDS_Shape
       try {
-        if (mode === 'union') {
-          // 全部併進第一個目標，其餘目標被移除
-          const rest = targets.slice(1).map((id) => bodies.get(id)!)
-          const merged = chainBoolean(oc, bodies.get(targets[0])!, [...rest, prism], 'union')
-          setBody(targets[0], merged)
-          const removed = targets.slice(1)
-          for (const id of removed) {
-            bodies.get(id)?.delete()
-            bodies.delete(id)
-          }
-          return { ...result(recorded, [targets[0]]), removed }
-        }
-        // subtract / intersect：逐一對每個目標套用（先全部算完再替換，失敗時不留半套）
-        const outputs: TopoDS_Shape[] = []
-        try {
-          for (const id of targets) {
-            outputs.push(
-              chainBoolean(oc, bodies.get(id)!, [prism], mode === 'subtract' ? 'subtract' : 'intersect'),
-            )
-          }
-        } catch (e) {
-          for (const out of outputs) out.delete()
-          throw e
-        }
-        targets.forEach((id, i) => setBody(id, outputs[i]))
-        return result(recorded, targets)
-      } finally {
-        prism.delete()
+        solid = revolveFromCurves(oc, jop)
+      } catch (e) {
+        // OCCT 對自交的旋轉體會丟 C++ 例外（數字）——換成看得懂的訊息
+        if (e instanceof Error) throw e
+        throw new Error('無法旋轉成形：旋轉軸不能穿過輪廓內部', { cause: e })
       }
+      const hostId = jop.hostBodyId !== null && bodies.has(jop.hostBodyId) ? jop.hostBodyId : null
+      return commitSolid(oc, jop, solid, hostId, hostId !== null ? 'union' : 'new')
+    }
+    case 'mirror': {
+      const source = bodies.get(jop.sourceBodyId)
+      if (!source) throw new Error(`body ${jop.sourceBodyId} 不存在`)
+      const trsf = new oc.gp_Trsf_1()
+      const point = new oc.gp_Pnt_3(...jop.point)
+      const normal = new oc.gp_Dir_4(...jop.normal)
+      const ax2 = new oc.gp_Ax2_3(point, normal)
+      trsf.SetMirror_3(ax2)
+      // 鏡射會翻轉手性：Copy=true 讓 OCCT 重建幾何，方向才正確
+      const transform = new oc.BRepBuilderAPI_Transform_2(source, trsf, true)
+      const mirrored = transform.Shape()
+      transform.delete()
+      trsf.delete()
+      point.delete()
+      normal.delete()
+      ax2.delete()
+      const bodyId = claimBodyId(jop.bodyId)
+      setBody(bodyId, mirrored)
+      return result({ ...jop, bodyId }, [bodyId])
     }
     case 'pattern': {
       const source = bodies.get(jop.sourceBodyId)

@@ -39,6 +39,42 @@ export async function applyBoolean(mode: Exclude<BoolMode, 'new'>): Promise<void
   }
 }
 
+/**
+ * 鏡射複製（Shapr3D 的 Mirror）：以世界基準面，或目前選為草圖平面的建構平面為鏡面。
+ * 原本體保留，鏡射出來的是新本體。
+ */
+export async function mirrorSelectedBodies(base: 'top' | 'front' | 'right' | 'active'): Promise<void> {
+  const store = useAppStore.getState()
+  const picked = store.selection.filter(isBodySelection).filter((i) => i.kind === 'body')
+  if (picked.length === 0) return
+  let normal: [number, number, number] = base === 'top' ? [0, 0, 1] : base === 'front' ? [0, 1, 0] : [1, 0, 0]
+  let point: [number, number, number] = [0, 0, 0]
+  if (base === 'active') {
+    const plane = store.activePlaneId !== null ? documentController.planeEntities().get(store.activePlaneId) : null
+    if (!plane) {
+      store.showToast('先雙擊一個建構平面，才能以它為鏡面')
+      return
+    }
+    normal = plane.plane.normal
+    point = plane.center
+  }
+  try {
+    for (const item of picked) {
+      const name = store.bodies.find((b) => b.bodyId === item.bodyId)?.name ?? '主體'
+      await documentController.apply({
+        kind: 'mirror',
+        sourceBodyId: item.bodyId,
+        bodyId: 0,
+        name: `${name} 鏡射`,
+        point,
+        normal,
+      })
+    }
+  } catch (e) {
+    store.showToast(`鏡射失敗：${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 /** 把本體收進新資料夾（經 journal，可 undo）。 */
 export async function createFolder(bodyIds: number[]): Promise<void> {
   await documentController.apply({

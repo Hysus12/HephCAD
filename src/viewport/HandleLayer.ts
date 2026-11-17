@@ -30,6 +30,8 @@ const RING_SAMPLES = 72
 export type HandleAction =
   | { kind: 'extrudeRegion'; sketchId: number; regionIndex: number }
   | { kind: 'pushPull'; bodyId: number; faceId: number }
+  /** 旋轉成形：區域繞 spec.dir 軸（過 spec.origin）；value＝角度（度）。 */
+  | { kind: 'revolve'; sketchId: number; regionIndex: number }
   /** 建構平面：從這個面偏移（拖出距離＝偏移量，mm）。 */
   | { kind: 'planeOffset'; bodyId: number; faceId: number }
   | { kind: 'moveAxis'; bodyId: number }

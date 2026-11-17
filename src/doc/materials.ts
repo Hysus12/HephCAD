@@ -8,7 +8,7 @@ export interface BodyMaterial {
   opacity: number
 }
 
-export const DEFAULT_MATERIAL: BodyMaterial = { color: '#9a9aa0', opacity: 1 }
+export const DEFAULT_MATERIAL: BodyMaterial = { color: '#c4c4ca', opacity: 1 }
 export const MIN_OPACITY = 0.05
 
 export function clampOpacity(value: number): number {
@@ -34,7 +34,7 @@ export function deriveMaterials(
           opacity: op.opacity === undefined ? current.opacity : clampOpacity(op.opacity),
         })
       }
-    } else if (op.kind === 'copyBody') {
+    } else if (op.kind === 'copyBody' || op.kind === 'mirror') {
       inherit(op.sourceBodyId, op.bodyId)
     } else if (op.kind === 'pattern') {
       for (const id of op.resultBodyIds) inherit(op.sourceBodyId, id)

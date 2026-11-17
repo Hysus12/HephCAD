@@ -51,6 +51,8 @@ export interface GestureCallbacks {
   hoverEnd?(): void
   /** 多指快速點擊（2 = 復原、3 = 重做）。 */
   multiTap?(fingers: number): void
+  /** 一個觸控因為「筆正在用/剛用過」被當成手掌忽略（讓 UI 能提示，方便排查手指沒反應）。 */
+  touchRejected?(): void
   /** 第一次看到筆輸入。 */
   penDetected?(): void
 }
@@ -65,8 +67,6 @@ const MULTI_TAP_MAX_MOVEMENT_PX = 12
 export const PALM_WINDOW_MS = 300
 /** 筆「接觸中」但這麼久沒有任何筆事件 → 視為事件遺失，不再擋手指。 */
 const PEN_STALE_MS = 2000
-/** 接觸面積超過此值的觸控視為手掌。 */
-const PALM_CONTACT_PX = 40
 const WHEEL_DOLLY_SPEED = 0.0015
 const PINCH_WHEEL_DOLLY_SPEED = 0.01
 
@@ -119,8 +119,9 @@ export class GestureController {
       this.notePen(now)
       this.penDown++
       this.rejectActiveTouches()
-    } else if (type === 'touch' && this.isPalm(e, now)) {
+    } else if (type === 'touch' && this.isPalm(now)) {
       this.rejected.add(e.pointerId)
+      this.callbacks.touchRejected?.()
       return
     }
 
@@ -336,11 +337,12 @@ export class GestureController {
     this.callbacks.tap(x, y, type, isDouble ? 2 : 1)
   }
 
-  private isPalm(e: PointerLike, now: number): boolean {
+  private isPalm(now: number): boolean {
     // 筆「接觸中」才算；事件遺失（pointerup 沒送達）時，過久沒有筆活動就視為已抬起，避免手指永遠被忽略
     if (this.penDown > 0 && now - this.lastPenTime < PEN_STALE_MS) return true
     if (now - this.lastPenTime < PALM_WINDOW_MS) return true
-    return (e.width ?? 0) > PALM_CONTACT_PX || (e.height ?? 0) > PALM_CONTACT_PX
+    // 不看接觸面積：iPad Safari 回報的手指接觸寬高常常很大，用它判斷會把「所有」手指當手掌
+    return false
   }
 
   /** 筆的 pointerup/cancel 沒送達（Safari 偶發）：久未活動的「按著的筆」當作已抬起。 */

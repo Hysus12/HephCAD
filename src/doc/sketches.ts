@@ -45,7 +45,7 @@ export function deriveSketches(ops: JournalOp[]): Map<number, SketchEntity> {
       maxCurveIds.set(op.sketchId, entity.maxCurveId)
       // 曲線刪光的草圖從場景消失（id 不重用，見 nextSketchId）
       if (entity.curves.length === 0) sketches.delete(op.sketchId)
-    } else if (op.kind === 'extrude' && op.sketchId !== undefined && op.regionKey) {
+    } else if ((op.kind === 'extrude' || op.kind === 'revolve') && op.sketchId !== undefined && op.regionKey) {
       sketches.get(op.sketchId)?.consumed.add(op.regionKey)
     }
   }

@@ -7,7 +7,7 @@ import { services } from '../app/services.ts'
 import { DEFAULT_MATERIAL } from '../doc/materials.ts'
 import { isBodySelection, useAppStore } from '../state/appStore.ts'
 
-const SWATCHES = ['#9a9aa0', '#e5e5e8', '#3a3a40', '#d94b4b', '#f08a24', '#e8c53a', '#4caf6d', '#3f8ae0', '#8a5cd0']
+const SWATCHES = ['#c4c4ca', '#8a8a90', '#3a3a40', '#d94b4b', '#f08a24', '#e8c53a', '#4caf6d', '#3f8ae0', '#8a5cd0']
 
 export function AppearancePanel() {
   const selection = useAppStore((s) => s.selection)

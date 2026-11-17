@@ -7,7 +7,13 @@
 // 量測（長度/面積/體積）跟著 body 類選取一起顯示。
 
 import { useEffect, useState } from 'react'
-import { applyBoolean, copySelectedBody, createFolder, moveToFolder } from '../app/bodyActions.ts'
+import {
+  applyBoolean,
+  copySelectedBody,
+  createFolder,
+  mirrorSelectedBodies,
+  moveToFolder,
+} from '../app/bodyActions.ts'
 import { services } from '../app/services.ts'
 import { deleteSelection } from '../app/viewportHost.ts'
 import type { MeasureResult } from '../kernel/protocol.ts'
@@ -38,6 +44,7 @@ export function ContextBar() {
   const keepOriginals = useAppStore((s) => s.keepOriginals)
   const toggleKeepOriginals = useAppStore((s) => s.toggleKeepOriginals)
   const folders = useAppStore((s) => s.folders)
+  const activePlaneId = useAppStore((s) => s.activePlaneId)
   const appearanceOpen = useAppStore((s) => s.appearanceOpen)
   const setAppearanceOpen = useAppStore((s) => s.setAppearanceOpen)
   const patternType = useAppStore((s) => s.patternType)
@@ -77,11 +84,19 @@ export function ContextBar() {
   let canCopy = false
   let canBoolean = false
   let canChain = false
+  let canRevolve = false
   let canFaceEdges = false
 
   if (only('region')) {
-    hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）' : null
+    hint = selection.length === 1 ? '拖曳藍色箭頭擠出（往回拖＝切除）；再點一條直線當軸＝旋轉成形' : null
     canLookAt = true
+  } else if (
+    selection.length === 2 &&
+    selection.some((i) => i.kind === 'region') &&
+    selection.some((i) => i.kind === 'curve')
+  ) {
+    canRevolve = true
+    hint = '拖曳圓環旋轉成形（5° 一格）；點數字可輸入角度'
   } else if (only('curve')) {
     canDelete = true
     canLookAt = true
@@ -100,6 +115,7 @@ export function ContextBar() {
     if (selection.length === 1) {
       modes.push({ mode: 'move', label: '移動' })
       modes.push({ mode: 'pattern', label: '陣列' })
+      modes.push({ mode: 'mirror', label: '鏡射' })
       canCopy = true
     } else {
       canBoolean = true
@@ -109,6 +125,7 @@ export function ContextBar() {
   }
 
   if (toolMode === 'move') hint = '箭頭＝沿軸移動、圓環＝繞軸旋轉（5° 一格）；點數字可輸入精確值'
+  else if (toolMode === 'mirror') hint = '選鏡面：過原點的基準面，或雙擊選好的建構平面；原本體會保留'
   else if (toolMode === 'pattern') {
     hint =
       patternType === 'linear'
@@ -138,6 +155,26 @@ export function ContextBar() {
         >
           拷貝
         </button>
+      )}
+      {toolMode === 'mirror' && (
+        <>
+          {(
+            [
+              ['right', '左右（YZ 面）'],
+              ['front', '前後（XZ 面）'],
+              ['top', '上下（XY 面）'],
+            ] as const
+          ).map(([base, label]) => (
+            <button key={base} className="context-button" onClick={() => void mirrorSelectedBodies(base)}>
+              {label}
+            </button>
+          ))}
+          {activePlaneId !== null && (
+            <button className="context-button" onClick={() => void mirrorSelectedBodies('active')}>
+              目前的建構平面
+            </button>
+          )}
+        </>
       )}
       {toolMode === 'pattern' && (
         <>
@@ -264,6 +301,15 @@ export function ContextBar() {
           }
         >
           投影
+        </button>
+      )}
+      {canRevolve && (
+        <button
+          className="context-button"
+          title="繞選取的直線旋轉一整圈"
+          onClick={() => void services.viewport?.revolveFull()}
+        >
+          整圈 360°
         </button>
       )}
       {canChain && (

@@ -14,6 +14,7 @@ import { StatusChips } from './ui/StatusChips.tsx'
 import { Toast } from './ui/Toast.tsx'
 import { Toolbar } from './ui/Toolbar.tsx'
 import { UndoBar } from './ui/UndoBar.tsx'
+import { WelcomeCard } from './ui/WelcomeCard.tsx'
 import { ViewportCanvas } from './ui/ViewportCanvas.tsx'
 
 /** 鍵盤工具快捷鍵（Shapr3D / 常見 CAD 慣例）。 */
@@ -66,6 +67,8 @@ export function App() {
       } else if (key === 'delete' || key === 'backspace') {
         e.preventDefault()
         void deleteSelection()
+      } else if (key === 'f' && !mod) {
+        services.viewport?.zoomToFit()
       } else if (TOOL_KEYS[key]) {
         selectTool(TOOL_KEYS[key])
       }
@@ -88,6 +91,7 @@ export function App() {
       <BooleanBadge />
       <AppearanceHost />
       <Toast />
+      <WelcomeCard />
     </div>
   )
 }

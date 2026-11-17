@@ -15,7 +15,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import type { MeshData, TopoGroup } from '../kernel/protocol.ts'
 
 // Shapr3D 風格的中性灰實體 + 深色輪廓線。
-const BODY_COLOR = 0x9a9aa0
+const BODY_COLOR = 0xc4c4ca
 const EDGE_COLOR = 0x0c0c0f
 
 /**

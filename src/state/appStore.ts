@@ -130,7 +130,7 @@ export interface AppState {
   clearSelection: () => void
 
   /** 情境操作模式（依選取出現：移動/抽殼）。選取變更即重置。邊的圓角/倒角不需模式（選了邊就有雙向箭頭）。 */
-  toolMode: 'move' | 'shell' | 'pattern' | 'plane' | null
+  toolMode: 'move' | 'shell' | 'pattern' | 'plane' | 'mirror' | null
   setToolMode: (mode: AppState['toolMode']) => void
 
   activeTool: ActiveTool
