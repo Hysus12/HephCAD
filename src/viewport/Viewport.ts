@@ -612,7 +612,8 @@ export class Viewport {
   private beginPrimary(clientX: number, clientY: number, type: string): PrimaryRole {
     this.syncCamera()
     const local = this.toLocal(clientX, clientY)
-    if (this.viewCube.pick(local.x, local.y, this.width)) return 'none'
+    // 在視角方塊上拖曳＝轉視角（筆和手指都一樣）；輕點由 handleTap 轉到該面/邊/角
+    if (this.viewCube.contains(local.x, local.y, this.width)) return 'orbit'
 
     const handle = this.handles.hitTest(
       local,
@@ -1704,10 +1705,21 @@ export class Viewport {
   private handleTap(clientX: number, clientY: number, tapCount: number): void {
     this.syncCamera()
     const local = this.toLocal(clientX, clientY)
-    const orientation = this.viewCube.pick(local.x, local.y, this.width)
-    if (orientation) {
-      this.rig.snapTo(orientation)
-      this.invalidate()
+    if (this.viewCube.contains(local.x, local.y, this.width)) {
+      const dir = this.viewCube.pick(local.x, local.y, this.width)
+      if (dir) {
+        // 已經正對這個面時再點一次＝翻到背面（不用轉半圈去找另一面）
+        const current = this.rig.direction(new Vector3())
+        const facing = current.dot(new Vector3(...dir)) > 0.999
+        // 俯/仰視時把畫面轉正到最近的 90°（否則會停在斜的方位角）
+        const quarter = Math.round(this.rig.theta / (Math.PI / 2)) * (Math.PI / 2)
+        this.rig.snapToDirection(facing ? [-dir[0], -dir[1], -dir[2]] : dir, [
+          -Math.cos(quarter),
+          -Math.sin(quarter),
+          0,
+        ])
+        this.invalidate()
+      }
       return
     }
     const store = useAppStore.getState()
